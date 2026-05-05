@@ -1,0 +1,55 @@
+{
+  "name": "@self-evolving-harness/kivo",
+  "version": "1.20.0",
+  "description": "KIVO — Agent 知识平台，覆盖知识提取、存储、检索、迭代、调研、图谱、工作台全生命周期",
+  "type": "module",
+  "main": "dist/cjs/index.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/esm/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js"
+    },
+    "./plugin": {
+      "types": "./dist/esm/plugin/index.d.ts",
+      "import": "./dist/esm/plugin/index.js",
+      "require": "./dist/cjs/plugin/index.js"
+    }
+  },
+  "bin": {
+    "kivo": "./dist/esm/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc && tsc -p tsconfig.cjs.json && node scripts/fix-cjs.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^11.7.0",
+    "jszip": "^3.10.1",
+    "pdfjs-dist": "^5.7.284",
+    "uuid": "^14.0.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.0.0",
+    "@types/uuid": "^10.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "hooks",
+    "scripts",
+    "README.md",
+    "LICENSE"
+  ]
+}
