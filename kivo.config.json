@@ -1,0 +1,6 @@
+{
+  "dbPath": "./kivo.db",
+  "mode": "standalone",
+  "conflictThreshold": 0.85,
+  "embedding": null
+}
