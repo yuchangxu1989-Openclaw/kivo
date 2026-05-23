@@ -1,0 +1,12 @@
+export {
+  DEFAULT_DEDUP_THRESHOLD,
+  loadDedupThreshold,
+  KNOWLEDGE_ADMISSION_BOUNDARY_PROMPT,
+  TRIPLE_TEST_PROMPT,
+  BEHAVIORAL_CHANGE_TEST_PROMPT,
+  BEHAVIORAL_CHANGE_POSITIVE_EXAMPLES,
+  BEHAVIORAL_CHANGE_NEGATIVE_EXAMPLES,
+  buildKnowledgeAdmissionBoundarySection,
+  buildBehavioralChangeTestSection,
+  GOVERNANCE_BEHAVIORAL_TEST_PROMPT,
+} from './admission-criteria.js';

@@ -1,0 +1,11 @@
+{
+  "dbPath": "./kivo.db",
+  "mode": "standalone",
+  "conflictThreshold": 0.85,
+  "embedding": null,
+  "extraction": {
+    "dedup": {
+      "threshold": 0.92
+    }
+  }
+}

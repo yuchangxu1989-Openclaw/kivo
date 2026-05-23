@@ -1,0 +1,18 @@
+{
+  "slug": "dark-text-contrast-fix",
+  "description": "",
+  "parentProject": "@self-evolving-harness/kivo",
+  "createdAt": "2026-05-20T07:02:31.013Z",
+  "stages": [
+    "spec",
+    "spec-review-gate",
+    "implement",
+    "review",
+    "smoke-test",
+    "ux-acceptance",
+    "pm-commercial-review",
+    "publish-generalization-gate",
+    "deploy",
+    "ledger"
+  ]
+}

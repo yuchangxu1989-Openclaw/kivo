@@ -1,0 +1,14 @@
+{
+  "createdAt": "2026-05-21T09:53:15.201Z",
+  "entries": [
+    {
+      "id": "67e27c79-690a-4af9-a330-4c3a2cdc4366",
+      "type": "experience",
+      "title": "知识库RAG召回应使...",
+      "content": "在知识库 RAG 召回场景中，应基于 title + content + similar_expressions 三个字段做向量检索联合匹配，取 top-K 后合并去重。仅用描述（content）单字段匹配时，recall@5 约 60%，准确率受限于用户表达多样性；加入相似表达字段后，recall@5 可提升至 80% 以上。实施步骤：1）为每条知识条目维护 similar_expressions 字段，收录同义表达、缩写、口语化变体；2）对 title、content、similar_expressions 分别生成 embedding 向量；3）检索时对三个字段分别计算相似度，取各字段 top-K 结果合并去重；4）按综合得分排序返回最终结果。适用前提：知识条目数量较多（百条以上）且用户查询表达多样化的场景。",
+      "summary": "知识库RAG召回应对title、content、similar_expressions三字段分别做向量检索并合并去重，相比单字段匹配可将recall@5从约60%提升至80%以上。",
+      "domain": "KIVO",
+      "updated_at": "2026-05-07T02:15:27.492Z"
+    }
+  ]
+}

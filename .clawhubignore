@@ -1,0 +1,9 @@
+node_modules
+web
+__tests__
+kivo-data
+*.db
+*.sqlite
+package-lock.json
+vitest.config.ts
+.git

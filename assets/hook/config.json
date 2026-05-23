@@ -1,0 +1,5 @@
+{
+  "name": "kivo-intent-injection",
+  "description": "KIVO 知识向量注入 - 对话时自动注入相关知识上下文",
+  "events": ["agent:bootstrap", "message:received"]
+}
