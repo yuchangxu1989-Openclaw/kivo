@@ -5,7 +5,7 @@
 
 export type WikiEntryType = 'wiki_space' | 'wiki_directory' | 'wiki_page';
 export type WikiNodeType = 'space' | 'directory' | 'page';
-export type WikiSourceType = 'url' | 'document' | 'research';
+export type WikiSourceType = 'url' | 'document' | 'research' | 'feishu' | 'web';
 export type WikiDraftStatus = 'pending_confirmation' | 'confirmed' | 'discarded' | 'failed';
 export type WikiNodeStatus = 'active' | 'draft' | 'archived' | 'deleted';
 
@@ -251,6 +251,12 @@ export interface TranscribeOptions {
   model?: 'tiny' | 'base';
   /** Whether to include timestamped segments. */
   includeSegments?: boolean;
+  /** Source path for preserving original media on failure. */
+  sourceMediaPath?: string;
+  /** Single-file size limit. Defaults to FR-A02 50MB import limit. */
+  maxFileSizeBytes?: number;
+  /** Single transcribed segment duration limit in seconds. */
+  maxSegmentDurationSeconds?: number;
 }
 
 export interface TranscribeResult {
@@ -275,13 +281,76 @@ export interface MultimodalCollectInput {
   content: string | Uint8Array;
   spaceId?: string;
   timeoutMs?: number;
+  sourceMediaPath?: string;
+  sourceChannel?: 'feishu' | 'web' | 'url' | string;
+  sourceRef?: string;
+  retryChannel?: VideoChannelName;
+}
+
+export type UploadRouteChannel = 'image' | 'audio' | 'video' | 'document' | 'unsupported';
+export type UploadRouteStatus = 'ready' | 'unsupported';
+
+export interface UploadRouteDecision {
+  channel: UploadRouteChannel;
+  status: UploadRouteStatus;
+  mimeType: string;
+  extension?: string;
+  conflict: boolean;
+  conflictLog?: string;
+  parseParams: Record<string, unknown>;
+  userMessage?: string;
+}
+
+export interface MaterialRouteMetadata {
+  materialId: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  status: UploadRouteStatus;
+  spaceId: string;
+  storagePath: string;
+  sourceChannel: string;
+  sourceRef?: string;
+  route: UploadRouteDecision;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** FR-A02 FR-C AC5 - per-channel failure tracking for video dual-channel processing */
+export type VideoChannelName = 'audio' | 'keyframe';
+export type VideoChannelStatus = 'success' | 'failed' | 'skipped';
+
+export interface VideoChannelFailure {
+  channel: VideoChannelName;
+  status: VideoChannelStatus;
+  reason?: string;
 }
 
 /** Result from multimodal routing */
+export interface MultimodalTextFragment {
+  text: string;
+  sourceMediaPath?: string;
+  startSeconds?: number;
+  endSeconds?: number;
+  frameIndex?: number;
+  timestampSeconds?: number;
+  coordinates?: unknown;
+  /** FR-A02 FR-C AC1/AC2 - which channel produced this fragment */
+  channel?: VideoChannelName | 'ocr' | 'transcription';
+  /** FR-A02 FR-C AC3 - marks fragments that are semantically duplicate across channels */
+  duplicateMarker?: string;
+}
+
 export interface MultimodalRouteResult {
   category: 'pdf' | 'image' | 'video' | 'audio' | 'text' | 'unknown';
+  route?: UploadRouteDecision;
+  material?: MaterialRouteMetadata;
   extractedText: string;
   metadata: Record<string, unknown>;
   draft?: WikiDraft;
   warnings: string[];
+  fragments?: MultimodalTextFragment[];
+  /** FR-A02 FR-C AC5 - per-channel failure details for video dual-channel */
+  channelFailures?: VideoChannelFailure[];
 }

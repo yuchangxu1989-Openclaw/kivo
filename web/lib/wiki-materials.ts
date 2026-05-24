@@ -2,8 +2,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { WikiCollectionPipeline } from '@kivo/wiki/collection/pipeline.js';
-import type { CollectorContext, WikiDraft } from '@kivo/wiki/types.js';
+import { writeStagingMaterialsToDb } from '@kivo/wiki/collection/staging-materials.js';
+import type { CollectorContext, VideoChannelName, WikiDraft } from '@kivo/wiki/types.js';
 import { getWikiRepository } from '@/lib/wiki-engine';
+import { openWebDb } from '@/lib/governance-store';
 import { getMaterialsStorageRoot, WikiMaterialsStore, type MaterialRecord } from '@/lib/wiki-materials-store';
 
 export const MAX_MATERIAL_FILE_SIZE_BYTES = 400 * 1024 * 1024;
@@ -20,6 +22,9 @@ const MIME_BY_EXTENSION: Record<string, string> = {
 
 const SUPPORTED_MIME_TYPES = new Set([
   'application/pdf',
+  'text/plain',
+  'text/markdown',
+  'application/json',
   'image/jpeg',
   'image/png',
   'video/mp4',
@@ -35,11 +40,26 @@ function inferMimeTypeFromName(fileName: string): string | null {
 }
 
 export function detectMaterialMimeType(fileName: string, providedType?: string | null) {
-  const mimeType = (providedType || '').trim() || inferMimeTypeFromName(fileName) || 'application/octet-stream';
+  const provided = (providedType || '').trim();
+  const inferred = inferMimeTypeFromName(fileName);
+  const mimeType = provided || inferred || 'application/octet-stream';
+  const category = categorizeMaterialMimeType(mimeType);
   return {
     mimeType,
-    supported: SUPPORTED_MIME_TYPES.has(mimeType),
+    supported: SUPPORTED_MIME_TYPES.has(mimeType) || category !== 'unsupported',
+    category,
+    routeParams: { category, mimeType, inferredMimeType: inferred, mimeConflict: Boolean(provided && inferred && provided !== inferred) },
   };
+}
+
+export function categorizeMaterialMimeType(mimeType: string) {
+  const normalized = mimeType.toLowerCase().trim();
+  if (normalized === 'application/pdf') return 'pdf';
+  if (normalized.startsWith('image/')) return 'image';
+  if (normalized.startsWith('audio/')) return 'audio';
+  if (normalized.startsWith('video/')) return 'video';
+  if (normalized.startsWith('text/') || normalized === 'application/json') return 'text';
+  return 'unsupported';
 }
 
 export function buildStoredMaterialPath(materialId: string, fileName: string) {
@@ -98,7 +118,7 @@ function normalizeDraft(draft: WikiDraft, material: MaterialRecord, targetSpaceI
   return draft;
 }
 
-export async function processMaterial(materialId: string) {
+export async function processMaterial(materialId: string, retryChannel?: VideoChannelName) {
   const store = new WikiMaterialsStore();
   try {
     const material = store.get(materialId);
@@ -117,10 +137,28 @@ export async function processMaterial(materialId: string) {
       mimeType: material.mimeType,
       content: new Uint8Array(buffer),
       spaceId: targetSpaceId,
+      sourceMediaPath: material.storagePath,
       timeoutMs: 300_000,
+      retryChannel,
     });
 
+    if (result.category === 'unknown') {
+      store.markUnsupported(material.id, result.warnings.join('；') || '不支持的素材类型');
+      return;
+    }
+
+    // FR-A02 FR-C AC5 - persist per-channel failure details for video materials
+    if (result.channelFailures?.length) {
+      store.updateRouteParams(material.id, { channelFailures: result.channelFailures });
+    }
+
+    await writeStagingMaterials(material, result);
+
     if (!result.draft) {
+      if (result.extractedText.trim()) {
+        store.markDone(material.id, []);
+        return;
+      }
       throw new Error(result.warnings.join('；') || '多模态处理未生成草稿');
     }
 
@@ -141,8 +179,8 @@ export async function processMaterial(materialId: string) {
   }
 }
 
-export function scheduleMaterialProcessing(materialId: string) {
-  void processMaterial(materialId);
+export function scheduleMaterialProcessing(materialId: string, retryChannel?: VideoChannelName) {
+  void processMaterial(materialId, retryChannel);
 }
 
 export async function persistUploadedMaterial(input: {
@@ -165,9 +203,22 @@ export async function persistUploadedMaterial(input: {
       fileSize: input.fileSize,
       spaceId: input.spaceId,
       storagePath,
+      routeCategory: categorizeMaterialMimeType(input.mimeType),
+      routeParams: { mimeType: input.mimeType },
     });
-    return { id: record.id, storagePath: record.storagePath };
+    return record;
   } finally {
     store.close();
+  }
+}
+async function writeStagingMaterials(
+  material: MaterialRecord,
+  result: Parameters<typeof writeStagingMaterialsToDb>[2],
+) {
+  const db = openWebDb(false);
+  try {
+    writeStagingMaterialsToDb(db, material, result);
+  } finally {
+    db.close();
   }
 }

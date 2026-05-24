@@ -5,6 +5,7 @@ import type Database from 'better-sqlite3';
 import { openWebDb } from '@/lib/governance-store';
 
 export type MaterialStatus = 'processing' | 'done' | 'failed';
+export type MaterialPipelineStatus = 'pending' | 'in_progress' | 'done' | 'failed' | 'classified' | null;
 
 export interface MaterialRecord {
   id: string;
@@ -19,6 +20,14 @@ export interface MaterialRecord {
   storagePath: string;
   wikiPageIds: string[];
   errorMessage: string | null;
+  pipelineStatus: MaterialPipelineStatus;
+  classificationStatus: string | null;
+  sliceCount: number;
+  extractCount: number;
+  assetKind: string | null;
+  subjectNodeId: string | null;
+  routeCategory: string | null;
+  routeParams: Record<string, unknown> | null;
 }
 
 type MaterialRow = {
@@ -34,7 +43,25 @@ type MaterialRow = {
   storage_path: string;
   wiki_page_ids_json: string | null;
   error_message: string | null;
+  pipeline_status: MaterialPipelineStatus;
+  classification_status: string | null;
+  slice_count: number | null;
+  extract_count: number | null;
+  asset_kind: string | null;
+  subject_node_id: string | null;
+  route_category: string | null;
+  route_params_json: string | null;
 };
+
+function parseJsonObject(value: string | null): Record<string, unknown> | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
 
 function parseJsonArray(value: string | null): string[] {
   if (!value) return [];
@@ -60,6 +87,14 @@ function mapRow(row: MaterialRow): MaterialRecord {
     storagePath: row.storage_path,
     wikiPageIds: parseJsonArray(row.wiki_page_ids_json),
     errorMessage: row.error_message,
+    pipelineStatus: row.pipeline_status,
+    classificationStatus: row.classification_status,
+    sliceCount: row.slice_count ?? 0,
+    extractCount: row.extract_count ?? 0,
+    assetKind: row.asset_kind,
+    subjectNodeId: row.subject_node_id,
+    routeCategory: row.route_category,
+    routeParams: parseJsonObject(row.route_params_json),
   };
 }
 
@@ -94,6 +129,18 @@ export function ensureMaterialsTable(db: Database.Database) {
   ensureColumn(db, 'storage_path', "storage_path TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, 'wiki_page_ids_json', "wiki_page_ids_json TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, 'error_message', 'error_message TEXT');
+  ensureColumn(db, 'classification_status', "classification_status TEXT NOT NULL DEFAULT 'pending'");
+  ensureColumn(db, 'classification_confidence', 'classification_confidence REAL');
+  ensureColumn(db, 'suggested_subject_name', 'suggested_subject_name TEXT');
+  ensureColumn(db, 'subject_node_id', 'subject_node_id TEXT');
+  ensureColumn(db, 'pipeline_status', 'pipeline_status TEXT');
+  ensureColumn(db, 'slice_count', 'slice_count INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(db, 'extract_count', 'extract_count INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(db, 'asset_kind', 'asset_kind TEXT');
+  ensureColumn(db, 'source_channel', 'source_channel TEXT');
+  ensureColumn(db, 'source_ref', 'source_ref TEXT');
+  ensureColumn(db, 'route_category', 'route_category TEXT');
+  ensureColumn(db, 'route_params_json', 'route_params_json TEXT');
 }
 
 export class WikiMaterialsStore {
@@ -131,15 +178,28 @@ export class WikiMaterialsStore {
     fileSize: number;
     spaceId: string;
     storagePath: string;
+    routeCategory?: string;
+    routeParams?: Record<string, unknown>;
   }): MaterialRecord {
     const id = input.id ?? randomUUID();
     const now = new Date().toISOString();
     this.db.prepare(`
       INSERT INTO materials (
         id, file_name, mime_type, file_size, status, space_id, wiki_page_count,
-        created_at, updated_at, storage_path, wiki_page_ids_json, error_message
-      ) VALUES (?, ?, ?, ?, 'processing', ?, 0, ?, ?, ?, '[]', NULL)
-    `).run(id, input.fileName, input.mimeType, input.fileSize, input.spaceId, now, now, input.storagePath);
+        created_at, updated_at, storage_path, wiki_page_ids_json, error_message, route_category, route_params_json
+      ) VALUES (?, ?, ?, ?, 'processing', ?, 0, ?, ?, ?, '[]', NULL, ?, ?)
+    `).run(
+      id,
+      input.fileName,
+      input.mimeType,
+      input.fileSize,
+      input.spaceId,
+      now,
+      now,
+      input.storagePath,
+      input.routeCategory ?? null,
+      input.routeParams ? JSON.stringify(input.routeParams) : null,
+    );
     return this.get(id)!;
   }
 
@@ -179,6 +239,23 @@ export class WikiMaterialsStore {
           updated_at = ?
       WHERE id = ?
     `).run(errorMessage, now, id);
+  }
+
+  markUnsupported(id: string, errorMessage: string) {
+    this.markFailed(id, errorMessage);
+  }
+
+  /** FR-A02 FR-C AC5 - merge additional data into route_params_json (e.g. channelFailures). */
+  updateRouteParams(id: string, patch: Record<string, unknown>) {
+    const now = new Date().toISOString();
+    const existing = this.get(id);
+    const merged = { ...(existing?.routeParams ?? {}), ...patch };
+    this.db.prepare(`
+      UPDATE materials
+      SET route_params_json = ?,
+          updated_at = ?
+      WHERE id = ?
+    `).run(JSON.stringify(merged), now, id);
   }
 
   remove(id: string) {
