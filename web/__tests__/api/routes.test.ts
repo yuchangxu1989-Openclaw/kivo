@@ -22,8 +22,18 @@
  *   15. GET+POST+PUT+DELETE /api/v1/dictionary — dictionary CRUD
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { NextRequest } from 'next/server';
+
+const TEST_DB_DIR = mkdtempSync(path.join(tmpdir(), 'kivo-test-routes-'));
+process.env.KIVO_DB_PATH = path.join(TEST_DB_DIR, 'test.db');
+
+afterAll(() => {
+  rmSync(TEST_DB_DIR, { recursive: true, force: true });
+});
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -107,12 +117,26 @@ describe('GET /api/v1/knowledge/:id', () => {
   });
 
   it('returns entry detail for a valid id', async () => {
-    // ke-001 is seeded by kivo-engine
-    const res = await GET(makeGet('/api/v1/knowledge/ke-001'), { params: { id: 'ke-001' } });
+    const listMod = await import('../../app/api/v1/knowledge/route');
+    const listRes = await listMod.GET(makeGet('/api/v1/knowledge?status=active&pageSize=10'));
+    expect(listRes.status).toBe(200);
+    const listBody = await json<{ data: Array<{ id: string }> }>(listRes);
+    expect(listBody.data.length).toBeGreaterThan(0);
+
+    let id = listBody.data[0].id;
+    let res = await GET(makeGet(`/api/v1/knowledge/${id}`), { params: { id } });
+    for (const candidate of listBody.data.slice(1)) {
+      if (res.status === 200) break;
+      const candidateRes = await GET(makeGet(`/api/v1/knowledge/${candidate.id}`), { params: { id: candidate.id } });
+      if (candidateRes.status === 200) {
+        id = candidate.id;
+        res = candidateRes;
+      }
+    }
     expect(res.status).toBe(200);
 
     const body = await json<{ data: { id: string; title: string; relations: unknown[]; versions: unknown[] } }>(res);
-    expect(body.data.id).toBe('ke-001');
+    expect(body.data.id).toBe(id);
     expect(body.data.title).toBeTruthy();
     expect(body.data.relations).toBeInstanceOf(Array);
     expect(body.data.versions).toBeInstanceOf(Array);
@@ -552,8 +576,8 @@ describe('GET /api/v1/dashboard/summary', () => {
         totalEntries: number;
         byType: Record<string, number>;
         byStatus: Record<string, number>;
-        health: { pendingCount: number; unresolvedConflicts: number };
-        nextAction: { title: string; description: string; href: string; tone: string };
+        activeByType: Record<string, number>;
+        graph: { nodes: number; edges: number };
         trends: Record<string, unknown>;
       };
     }>(res);
@@ -561,11 +585,11 @@ describe('GET /api/v1/dashboard/summary', () => {
     expect(typeof body.data.totalEntries).toBe('number');
     expect(body.data.byType).toBeDefined();
     expect(body.data.byStatus).toBeDefined();
-    expect(body.data.health).toBeDefined();
-    expect(typeof body.data.health.pendingCount).toBe('number');
-    expect(typeof body.data.health.unresolvedConflicts).toBe('number');
-    expect(body.data.nextAction).toBeDefined();
-    expect(body.data.nextAction.title).toBeTruthy();
+    expect(body.data.activeByType).toBeDefined();
+    expect(typeof body.data.graph.nodes).toBe('number');
+    expect(typeof body.data.graph.edges).toBe('number');
+    expect(body.data).not.toHaveProperty('health');
+    expect(body.data).not.toHaveProperty('nextAction');
     expect(body.data.trends).toBeDefined();
   });
 

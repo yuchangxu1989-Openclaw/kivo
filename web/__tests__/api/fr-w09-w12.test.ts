@@ -7,8 +7,18 @@
  * FR-W12: Navigation & discovery — dashboard nextAction, conflict badge data
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { NextRequest } from 'next/server';
+
+const TEST_DB_DIR = mkdtempSync(path.join(tmpdir(), 'kivo-test-fr-w09-'));
+process.env.KIVO_DB_PATH = path.join(TEST_DB_DIR, 'test.db');
+
+afterAll(() => {
+  rmSync(TEST_DB_DIR, { recursive: true, force: true });
+});
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -460,14 +470,12 @@ describe('FR-W12: Navigation & Page Discovery', () => {
     conflictsGET = conflictMod.GET;
   });
 
-  // AC1: Default to dashboard after onboarding — middleware redirect tested here
-  it('AC1: root path middleware redirects to dashboard', async () => {
-    // Import middleware
+  // AC1: Root path serves the public landing page; authenticated navigation reaches dashboard after login.
+  it('AC1: root path middleware allows public landing page', async () => {
     const { middleware } = await import('../../middleware');
     const req = new NextRequest(new URL('/', BASE));
     const res = middleware(req);
-    expect(res.status).toBe(307); // redirect
-    expect(res.headers.get('location')).toContain('/dashboard');
+    expect(res.status).toBe(200);
   });
 
   // AC2: Conflict badge data — conflicts API returns unresolved count
@@ -484,20 +492,20 @@ describe('FR-W12: Navigation & Page Discovery', () => {
     expect(typeof unresolvedCount).toBe('number');
   });
 
-  // AC3: Dashboard recommends next action
-  it('AC3: dashboard summary includes nextAction recommendation', async () => {
+  // AC3: Dashboard exposes real DB-backed summary data without prescriptive mock recommendations.
+  it('AC3: dashboard summary includes real overview fields', async () => {
     const res = await dashboardGET(makeGet('/api/v1/dashboard/summary'));
     expect(res.status).toBe(200);
     const body = await json<{
       data: {
-        nextAction: { title: string; description: string; href: string; tone: string };
+        totalEntries: number;
+        weeklyNewEntries: number;
+        wikiSpaceCount: number;
       };
     }>(res);
-    expect(body.data.nextAction).toBeDefined();
-    expect(body.data.nextAction.title).toBeTruthy();
-    expect(body.data.nextAction.description).toBeTruthy();
-    expect(body.data.nextAction.href).toBeTruthy();
-    expect(['default', 'warning', 'success']).toContain(body.data.nextAction.tone);
+    expect(typeof body.data.totalEntries).toBe('number');
+    expect(typeof body.data.weeklyNewEntries).toBe('number');
+    expect(typeof body.data.wikiSpaceCount).toBe('number');
   });
 
   // AC4: Fixed nav entries — verified via app-shell structure
@@ -509,16 +517,18 @@ describe('FR-W12: Navigation & Page Discovery', () => {
         totalEntries: number;
         byType: Record<string, number>;
         byStatus: Record<string, number>;
-        health: { pendingCount: number; unresolvedConflicts: number };
-        searchHitRate: { current: number };
+        activeByType: Record<string, number>;
+        graph: { nodes: number; edges: number };
       };
     }>(res);
     // All sidebar-linked data points exist
     expect(typeof body.data.totalEntries).toBe('number');
     expect(body.data.byType).toBeDefined();
     expect(body.data.byStatus).toBeDefined();
-    expect(typeof body.data.health.pendingCount).toBe('number');
-    expect(typeof body.data.health.unresolvedConflicts).toBe('number');
-    expect(typeof body.data.searchHitRate.current).toBe('number');
+    expect(body.data.activeByType).toBeDefined();
+    expect(typeof body.data.graph.nodes).toBe('number');
+    expect(typeof body.data.graph.edges).toBe('number');
+    expect(body.data).not.toHaveProperty('health');
+    expect(body.data).not.toHaveProperty('searchHitRate');
   });
 });
