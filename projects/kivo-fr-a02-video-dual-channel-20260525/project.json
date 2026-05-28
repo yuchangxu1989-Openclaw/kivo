@@ -1,0 +1,18 @@
+{
+  "slug": "kivo-fr-a02-video-dual-channel-20260525",
+  "description": "FR-A02 多模态视频双通道 20260525：音频通道（ffmpeg 抽音轨 + 本地 whisper tiny/base 转录，禁 small/turbo/large 否则 OOM）+ 视觉通道（ffmpeg 关键帧抽样 + 视觉模型描述）+ 融合写 entries.source_json type=video",
+  "parentProject": "unnamed",
+  "createdAt": "2026-05-24T17:56:29.386Z",
+  "stages": [
+    "spec",
+    "spec-review-gate",
+    "implement",
+    "review",
+    "smoke-test",
+    "ux-acceptance",
+    "pm-commercial-review",
+    "publish-generalization-gate",
+    "deploy",
+    "ledger"
+  ]
+}

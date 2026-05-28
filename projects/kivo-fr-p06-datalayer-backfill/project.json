@@ -1,0 +1,18 @@
+{
+  "slug": "kivo-fr-p06-datalayer-backfill",
+  "description": "FR-P06 数据层补漏 20260525：聚合编译器触发条件失控修复（6/8 节点空 shell 根因）+ 抽取/聚合 backfill 脚本补跑 + 实测 wiki_links 写入 + FR-P 系列审计 P1 修复（edge_type 回填/arc42 签名/token 预算/cron 挂载）",
+  "parentProject": "unnamed",
+  "createdAt": "2026-05-24T17:56:18.782Z",
+  "stages": [
+    "spec",
+    "spec-review-gate",
+    "implement",
+    "review",
+    "smoke-test",
+    "ux-acceptance",
+    "pm-commercial-review",
+    "publish-generalization-gate",
+    "deploy",
+    "ledger"
+  ]
+}

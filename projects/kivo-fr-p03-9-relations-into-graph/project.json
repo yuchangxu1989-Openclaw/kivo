@@ -1,0 +1,18 @@
+{
+  "slug": "kivo-fr-p03-9-relations-into-graph",
+  "description": "FR-P03 9 种学科关系自动入图谱：LLM 提取关系，写入 graph_edges，关系类型白名单约束",
+  "parentProject": "unnamed",
+  "createdAt": "2026-05-24T10:32:54.755Z",
+  "stages": [
+    "spec",
+    "spec-review-gate",
+    "implement",
+    "review",
+    "smoke-test",
+    "ux-acceptance",
+    "pm-commercial-review",
+    "publish-generalization-gate",
+    "deploy",
+    "ledger"
+  ]
+}

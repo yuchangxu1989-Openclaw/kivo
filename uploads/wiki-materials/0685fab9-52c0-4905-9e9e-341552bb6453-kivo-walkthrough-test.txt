@@ -1,0 +1,8 @@
+KIVO UX walkthrough test document
+
+This is a generic knowledge note for upload testing.
+
+Key ideas:
+- Knowledge platforms should provide clear upload progress.
+- Search should return relevant results without exposing internal jargon.
+- Graph views should show readable nodes and relations.

@@ -1,0 +1,313 @@
+#!/usr/bin/env python3
+"""
+BGE Embedding Server for KIVO.
+
+Modes:
+  1. Pipe mode (default): reads JSON lines from stdin, writes embeddings to stdout.
+  2. HTTP serve mode (--serve): starts HTTP server on localhost:9876.
+     POST /embed  body: {"texts": ["text1", "text2"]}
+     Response: {"embeddings": [[...], [...]]}
+     POST /v1/embeddings  body: {"model": "bge-m3", "input": ["text1", "text2"]}
+     Response: OpenAI-compatible embeddings response
+
+Usage:
+  # Pipe mode (legacy, fallback):
+  echo '["hello world", "你好世界"]' | python3 scripts/bge-embed.py
+
+  # HTTP serve mode:
+  python3 scripts/bge-embed.py --serve
+  curl -s http://localhost:9876/embed -H 'Content-Type: application/json' -d '{"texts":["测试"]}'
+  curl -s http://localhost:9876/v1/embeddings -H 'Content-Type: application/json' -d '{"model":"bge-m3","input":["测试"]}'
+"""
+import sys
+import json
+import fcntl
+import argparse
+import os
+from pathlib import Path
+from urllib import request, error
+
+# Embedding provider defaults. Override with environment variables.
+os.environ.setdefault("EMBEDDING_PROVIDER", "volcengine")
+os.environ.setdefault("VOLCENGINE_ENDPOINT", "ep-20260526003131-fgvsx")
+
+# Singleton guard: only one bge-embed instance at a time
+_lock_fd = open("/tmp/bge-embed.lock", "w")
+try:
+    fcntl.flock(_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    print(json.dumps({"error": "Another bge-embed instance is already running"}), flush=True)
+    sys.exit(1)
+
+
+def load_model():
+    """Load the BGE model once and return it."""
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError:
+        err = json.dumps({"error": "sentence-transformers not installed. Run: pip install sentence-transformers"})
+        print(err, flush=True)
+        sys.exit(1)
+
+    try:
+        model = SentenceTransformer("BAAI/bge-small-zh-v1.5")
+    except Exception as e:
+        err = json.dumps({"error": f"Failed to load model: {e}"})
+        print(err, flush=True)
+        sys.exit(1)
+
+    return model
+
+
+def encode_texts(model, texts):
+    """Encode a list of texts and return list of embedding vectors."""
+    embeddings = model.encode(texts, normalize_embeddings=True)
+    return [vec.tolist() for vec in embeddings]
+
+
+def read_ark_api_key_from_openclaw():
+    config_path = Path(os.environ.get("OPENCLAW_CONFIG_PATH", "/root/.openclaw/openclaw.json"))
+    if not config_path.exists():
+        return ""
+    try:
+        raw = json.loads(config_path.read_text())
+        return raw.get("models", {}).get("providers", {}).get("volcengine-ark", {}).get("apiKey", "")
+    except Exception:
+        return ""
+
+
+def run_pipe_mode(model):
+    """Original pipe mode: read JSON lines from stdin, write embeddings to stdout."""
+    # Signal ready
+    print(json.dumps({"status": "ready", "model": "bge-small-zh-v1.5", "dimensions": 512}), flush=True)
+
+    # Loop: read one JSON line, process, write one JSON line
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+
+        try:
+            texts = json.loads(line)
+        except json.JSONDecodeError as e:
+            print(json.dumps({"error": f"Invalid JSON input: {e}"}), flush=True)
+            continue
+
+        if not isinstance(texts, list) or not all(isinstance(t, str) for t in texts):
+            print(json.dumps({"error": "Input must be a JSON array of strings"}), flush=True)
+            continue
+
+        if len(texts) == 0:
+            print(json.dumps([]), flush=True)
+            continue
+
+        try:
+            result = encode_texts(model, texts)
+            print(json.dumps(result), flush=True)
+        except Exception as e:
+            print(json.dumps({"error": f"Encoding failed: {e}"}), flush=True)
+
+
+def run_serve_mode(port=9876):
+    """HTTP serve mode: proxy embedding requests to configured provider."""
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+
+    PROVIDER = os.environ.get("EMBEDDING_PROVIDER", "volcengine").strip().lower()
+    if PROVIDER not in {"local", "volcengine"}:
+        print(json.dumps({"error": f"Unsupported EMBEDDING_PROVIDER: {PROVIDER}. Use local or volcengine"}), flush=True)
+        sys.exit(1)
+
+    OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+    OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "bge-m3:latest")
+    OLLAMA_DIMENSIONS = 1024
+
+    VOLCENGINE_URL = "https://ark.cn-beijing.volces.com/api/v3/embeddings/multimodal"
+    VOLCENGINE_API_KEY = os.environ.get("VOLCENGINE_API_KEY", "") or read_ark_api_key_from_openclaw()
+    VOLCENGINE_ENDPOINT = os.environ.get("VOLCENGINE_ENDPOINT", "ep-20260526003131-fgvsx")
+    VOLCENGINE_MODEL_NAME = "doubao-embedding-vision-251215"
+    VOLCENGINE_DIMENSIONS = 2048
+
+    if PROVIDER == "volcengine" and not VOLCENGINE_API_KEY:
+        print(json.dumps({"error": "VOLCENGINE_API_KEY is required when EMBEDDING_PROVIDER=volcengine"}), flush=True)
+        sys.exit(1)
+
+    def json_response(handler, status_code, payload):
+        body = json.dumps(payload).encode()
+        handler.send_response(status_code)
+        handler.send_header("Content-Type", "application/json")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.end_headers()
+        handler.wfile.write(body)
+
+    def http_json(url, payload=None, headers=None, method="POST", timeout=60):
+        if payload is None:
+            req = request.Request(url, method=method, headers=headers or {})
+        else:
+            body = json.dumps(payload).encode()
+            req_headers = {"Content-Type": "application/json"}
+            if headers:
+                req_headers.update(headers)
+            req = request.Request(url, data=body, method=method, headers=req_headers)
+
+        with request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read()
+            if not raw:
+                return {}
+            return json.loads(raw)
+
+    def call_ollama(path, payload=None, timeout=60):
+        method = "GET" if payload is None else "POST"
+        return http_json(f"{OLLAMA_BASE_URL}{path}", payload=payload, method=method, timeout=timeout)
+
+    def ollama_embed(text):
+        data = call_ollama("/api/embeddings", {"model": OLLAMA_MODEL, "prompt": text})
+        embedding = data.get("embedding")
+        if not isinstance(embedding, list):
+            raise ValueError("Ollama response missing embedding array")
+        return embedding
+
+    def volcengine_embed(text):
+        payload = {
+            "model": VOLCENGINE_ENDPOINT,
+            "input": [{"type": "text", "text": text}],
+        }
+        headers = {"Authorization": f"Bearer {VOLCENGINE_API_KEY}"}
+        data = http_json(VOLCENGINE_URL, payload=payload, headers=headers, timeout=60)
+        embedding = None
+        response_data = data.get("data")
+        if isinstance(response_data, dict):
+            embedding = response_data.get("embedding")
+        elif isinstance(response_data, list) and response_data:
+            first = response_data[0]
+            if isinstance(first, dict):
+                embedding = first.get("embedding")
+        if not isinstance(embedding, list):
+            raise ValueError("Volcengine response missing embedding array")
+        return embedding
+
+    def embed_text(text):
+        if PROVIDER == "volcengine":
+            return volcengine_embed(text)
+        return ollama_embed(text)
+
+    def active_model_name(requested_model=None):
+        if PROVIDER == "volcengine":
+            return VOLCENGINE_MODEL_NAME
+        return requested_model or "bge-m3"
+
+    def active_dimensions():
+        return VOLCENGINE_DIMENSIONS if PROVIDER == "volcengine" else OLLAMA_DIMENSIONS
+
+    class EmbedHandler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            if self.path not in {"/embed", "/v1/embeddings"}:
+                json_response(self, 404, {"error": "Not found. Use POST /embed or POST /v1/embeddings"})
+                return
+
+            content_length = int(self.headers.get("Content-Length", 0))
+            if content_length == 0:
+                json_response(self, 400, {"error": "Empty request body"})
+                return
+
+            body = self.rfile.read(content_length)
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError as e:
+                json_response(self, 400, {"error": f"Invalid JSON: {e}"})
+                return
+
+            is_openai_compat = self.path == "/v1/embeddings"
+            if is_openai_compat:
+                input_value = data.get("input")
+                if isinstance(input_value, str):
+                    texts = [input_value]
+                elif isinstance(input_value, list) and all(isinstance(t, str) for t in input_value):
+                    texts = input_value
+                else:
+                    json_response(self, 400, {"error": "Body must have 'input' as a string or array of strings"})
+                    return
+            else:
+                texts = data.get("texts")
+                if not isinstance(texts, list) or not all(isinstance(t, str) for t in texts):
+                    json_response(self, 400, {"error": "Body must have 'texts' as array of strings"})
+                    return
+
+            if len(texts) == 0:
+                if is_openai_compat:
+                    json_response(self, 200, {
+                        "object": "list",
+                        "data": [],
+                        "model": active_model_name(data.get("model")),
+                        "usage": {"prompt_tokens": sum(len(t) for t in texts), "total_tokens": sum(len(t) for t in texts)},
+                    })
+                else:
+                    json_response(self, 200, {"embeddings": [], "dimensions": active_dimensions(), "count": 0})
+                return
+
+            try:
+                result = [embed_text(text) for text in texts]
+                if is_openai_compat:
+                    response = {
+                        "object": "list",
+                        "data": [
+                            {"object": "embedding", "index": idx, "embedding": embedding}
+                            for idx, embedding in enumerate(result)
+                        ],
+                        "model": active_model_name(data.get("model")),
+                        "usage": {"prompt_tokens": sum(len(t) for t in texts), "total_tokens": sum(len(t) for t in texts)},
+                    }
+                else:
+                    response = {"embeddings": result, "dimensions": active_dimensions(), "count": len(result)}
+                json_response(self, 200, response)
+            except (error.URLError, TimeoutError) as e:
+                json_response(self, 502, {"error": f"Embedding provider unavailable: {e}"})
+            except Exception as e:
+                json_response(self, 500, {"error": f"Embedding failed: {e}"})
+
+        def do_GET(self):
+            if self.path == "/health":
+                try:
+                    if PROVIDER == "local":
+                        call_ollama("/api/tags", timeout=5)
+                    json_response(self, 200, {"status": "ok", "backend": PROVIDER, "model": active_model_name(), "dimensions": active_dimensions()})
+                except Exception as e:
+                    json_response(self, 503, {"status": "error", "backend": PROVIDER, "error": str(e)})
+            else:
+                json_response(self, 404, {"error": "Use POST /embed or GET /health"})
+
+        def log_message(self, format, *args):
+            # Log to stderr for systemd journal
+            sys.stderr.write(f"[bge-embed] {args[0]} {args[1]} {args[2]}\n")
+
+    server = HTTPServer(("127.0.0.1", port), EmbedHandler)
+    print(f"BGE Embedding HTTP proxy started on http://127.0.0.1:{port}", flush=True)
+    if PROVIDER == "volcengine":
+        print(f"  Backend: volcengine endpoint={VOLCENGINE_ENDPOINT}", flush=True)
+    else:
+        print(f"  Backend: {OLLAMA_BASE_URL} model={OLLAMA_MODEL}", flush=True)
+    print(f"  POST /embed          - encode texts", flush=True)
+    print(f"  POST /v1/embeddings  - OpenAI-compatible embeddings", flush=True)
+    print(f"  GET  /health         - health check", flush=True)
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nShutting down...", flush=True)
+        server.shutdown()
+
+
+def main():
+    parser = argparse.ArgumentParser(description="BGE Embedding Server for KIVO")
+    parser.add_argument("--serve", action="store_true", help="Start HTTP server mode on localhost:9876")
+    parser.add_argument("--port", type=int, default=9876, help="HTTP port (default: 9876)")
+    args = parser.parse_args()
+
+    if args.serve:
+        run_serve_mode(port=args.port)
+    else:
+        model = load_model()
+        run_pipe_mode(model)
+
+
+if __name__ == "__main__":
+    main()

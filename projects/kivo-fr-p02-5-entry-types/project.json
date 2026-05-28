@@ -1,0 +1,18 @@
+{
+  "slug": "kivo-fr-p02-5-entry-types",
+  "description": "FR-P02 5 类学科条目类型化：concept/method/question/mistake/annotation 类型字段 + 提取 prompt 改造",
+  "parentProject": "unnamed",
+  "createdAt": "2026-05-24T10:32:54.864Z",
+  "stages": [
+    "spec",
+    "spec-review-gate",
+    "implement",
+    "review",
+    "smoke-test",
+    "ux-acceptance",
+    "pm-commercial-review",
+    "publish-generalization-gate",
+    "deploy",
+    "ledger"
+  ]
+}

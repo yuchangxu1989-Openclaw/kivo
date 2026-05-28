@@ -1,0 +1,18 @@
+{
+  "slug": "kivo-fr-p03-ac7-subject-injection",
+  "description": "FR-P03 AC7 学科注入路径：向量召回+图谱扩展一跳+按关系类型分组返回",
+  "parentProject": "unnamed",
+  "createdAt": "2026-05-24T10:32:54.974Z",
+  "stages": [
+    "spec",
+    "spec-review-gate",
+    "implement",
+    "review",
+    "smoke-test",
+    "ux-acceptance",
+    "pm-commercial-review",
+    "publish-generalization-gate",
+    "deploy",
+    "ledger"
+  ]
+}

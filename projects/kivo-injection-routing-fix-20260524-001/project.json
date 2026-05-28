@@ -1,0 +1,18 @@
+{
+  "slug": "kivo-injection-routing-fix-20260524-001",
+  "description": "",
+  "parentProject": "unnamed",
+  "createdAt": "2026-05-24T11:43:46.584Z",
+  "stages": [
+    "spec",
+    "spec-review-gate",
+    "implement",
+    "review",
+    "smoke-test",
+    "ux-acceptance",
+    "pm-commercial-review",
+    "publish-generalization-gate",
+    "deploy",
+    "ledger"
+  ]
+}

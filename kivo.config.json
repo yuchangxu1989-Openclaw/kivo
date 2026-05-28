@@ -1,0 +1,17 @@
+{
+  "dbPath": "./kivo.db",
+  "mode": "standalone",
+  "conflictThreshold": 0.85,
+  "embedding": {
+    "provider": "openai-compatible",
+    "baseUrl": "http://localhost:9876",
+    "apiKey": "local-bridge",
+    "model": "doubao-embedding-vision-251215",
+    "dimensions": 2048
+  },
+  "extraction": {
+    "dedup": {
+      "threshold": 0.92
+    }
+  }
+}

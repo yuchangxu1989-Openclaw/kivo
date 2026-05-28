@@ -1,0 +1,18 @@
+{
+  "slug": "kivo-walkthrough-p2-p3-cleanup",
+  "description": "Walkthrough P2/P3 fixes",
+  "parentProject": "unnamed",
+  "createdAt": "2026-05-24T13:52:19.140Z",
+  "stages": [
+    "spec",
+    "spec-review-gate",
+    "implement",
+    "review",
+    "smoke-test",
+    "ux-acceptance",
+    "pm-commercial-review",
+    "publish-generalization-gate",
+    "deploy",
+    "ledger"
+  ]
+}

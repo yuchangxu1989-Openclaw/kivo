@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "components/ui/Modal.tsx",
+    "components/ui/ConfirmDialog.tsx",
+    "components/ui/Loading.tsx",
+    "components/ui/Empty.tsx",
+    "components/ui/ErrorState.tsx",
+    "lib/subjects/alias-repository.ts",
+    "app/api/subjects/aliases/route.ts"
+  ]
+}

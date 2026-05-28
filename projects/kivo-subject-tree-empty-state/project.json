@@ -1,0 +1,18 @@
+{
+  "slug": "kivo-subject-tree-empty-state",
+  "description": "P0-4: 学科树空状态与 wiki 实际数据矛盾修复;首屏显示「还没有学科域」但 wiki 有 70 条概率论;读真实数据并展示",
+  "parentProject": "unnamed",
+  "createdAt": "2026-05-24T06:10:53.726Z",
+  "stages": [
+    "spec",
+    "spec-review-gate",
+    "implement",
+    "review",
+    "smoke-test",
+    "ux-acceptance",
+    "pm-commercial-review",
+    "publish-generalization-gate",
+    "deploy",
+    "ledger"
+  ]
+}

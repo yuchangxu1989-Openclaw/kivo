@@ -1,0 +1,2 @@
+{"timestamp":"2026-05-24T18:32:30.457Z","pipelineId":"d0774de7-7a58-4045-abaa-0ba03836a0a8","stage":"implement","eventType":"pipeline_created","payload":{"taskId":"from-kivo-fr-a02-video-dual-channel-20260525-spec-1779645414663","level":"L0"}}
+{"timestamp":"2026-05-24T18:32:30.458Z","pipelineId":"d0774de7-7a58-4045-abaa-0ba03836a0a8","stage":"implement","eventType":"stage_activated","payload":{}}

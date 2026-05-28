@@ -1,0 +1,18 @@
+{
+  "slug": "kivo-fr-p03-graphpending-retry-fix-20260524-001",
+  "description": "",
+  "parentProject": "unnamed",
+  "createdAt": "2026-05-24T11:43:46.415Z",
+  "stages": [
+    "spec",
+    "spec-review-gate",
+    "implement",
+    "review",
+    "smoke-test",
+    "ux-acceptance",
+    "pm-commercial-review",
+    "publish-generalization-gate",
+    "deploy",
+    "ledger"
+  ]
+}

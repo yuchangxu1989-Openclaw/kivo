@@ -1,0 +1,17 @@
+# KIVO scripts/crontab.txt
+# Maintainer entries for KIVO cron schedules. Each line below is appended to the
+# host's crontab via:
+#   crontab -l > /tmp/old-cron && cat scripts/crontab.txt >> /tmp/old-cron && \
+#   sort -u /tmp/old-cron | crontab -
+# (sort -u keeps the table free of duplicates if this file is applied repeatedly.)
+#
+# 署名：free-code（OpenClaw ACP Agent）/ 2026-05-24
+
+# FR-P03 graphPending 30min retry cron + 3-strike abandon state machine.
+*/30 * * * * cd /root/.openclaw/workspace/projects/kivo && npx tsx scripts/cron-retry-graph-pending.ts >> logs/cron-graph-pending.log 2>&1
+
+# FR-A02 KIVO multimodal pipeline dispatcher — runs every minute.
+# Reads KIVO_INTERNAL_TOKEN from web/.env.local and POSTs to
+# http://127.0.0.1:3721/kivo/api/internal/dispatcher/tick which advances
+# materials through classify_pending → process_pipeline (slice/extract/wiki_page).
+* * * * * cd /root/.openclaw/workspace/projects/kivo && bash scripts/cron-pipeline-dispatcher.sh >> logs/cron-pipeline-dispatcher.log 2>&1

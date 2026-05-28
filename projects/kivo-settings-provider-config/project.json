@@ -1,0 +1,18 @@
+{
+  "slug": "kivo-settings-provider-config",
+  "description": "P0-3: KIVO 设置页加 LLM/embedding/Provider 配置面板;陌生人接不上自己的 API 阻断;视觉硬约束白底黑字;UX 严格按主 spec FR 实装",
+  "parentProject": "unnamed",
+  "createdAt": "2026-05-24T06:10:53.436Z",
+  "stages": [
+    "spec",
+    "spec-review-gate",
+    "implement",
+    "review",
+    "smoke-test",
+    "ux-acceptance",
+    "pm-commercial-review",
+    "publish-generalization-gate",
+    "deploy",
+    "ledger"
+  ]
+}

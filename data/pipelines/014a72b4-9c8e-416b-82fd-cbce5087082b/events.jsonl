@@ -1,0 +1,2 @@
+{"timestamp":"2026-05-24T18:32:30.617Z","pipelineId":"014a72b4-9c8e-416b-82fd-cbce5087082b","stage":"implement","eventType":"pipeline_created","payload":{"taskId":"from-kivo-fr-p06-datalayer-backfill-spec-1779645403053","level":"L0"}}
+{"timestamp":"2026-05-24T18:32:30.618Z","pipelineId":"014a72b4-9c8e-416b-82fd-cbce5087082b","stage":"implement","eventType":"stage_activated","payload":{}}

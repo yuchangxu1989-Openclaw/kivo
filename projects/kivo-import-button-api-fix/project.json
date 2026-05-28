@@ -1,0 +1,18 @@
+{
+  "slug": "kivo-import-button-api-fix",
+  "description": "Fix ImportMaterialButton old endpoint reference",
+  "parentProject": "unnamed",
+  "createdAt": "2026-05-24T13:51:01.831Z",
+  "stages": [
+    "spec",
+    "spec-review-gate",
+    "implement",
+    "review",
+    "smoke-test",
+    "ux-acceptance",
+    "pm-commercial-review",
+    "publish-generalization-gate",
+    "deploy",
+    "ledger"
+  ]
+}

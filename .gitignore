@@ -1,0 +1,38 @@
+node_modules/
+
+# 编译产物（npm 包包含，GitHub 源码仓库排除）
+*.js
+*.d.ts
+*.js.map
+!scripts/**/*.js
+!web/**/*.js
+!skill/**/*.js
+
+# 内部运行态
+.env
+.env.*
+*.log
+logs/
+state/
+.cache/
+coverage/
+dist/
+.next/
+web/.next/
+out/
+web/out/
+
+# 不该对外的内部文件
+.openclaw/
+memory/
+*.secret
+*.key
+openclaw.json
+
+# 项目运行数据
+kivo-data/
+*.db
+*.db.bak*
+*.db-shm
+*.db-wal
+.kivo/

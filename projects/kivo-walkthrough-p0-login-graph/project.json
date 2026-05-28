@@ -1,0 +1,18 @@
+{
+  "slug": "kivo-walkthrough-p0-login-graph",
+  "description": "修复 KIVO 走查 P0：登录跳转 + 图谱渲染",
+  "parentProject": "unnamed",
+  "createdAt": "2026-05-24T13:17:48.902Z",
+  "stages": [
+    "spec",
+    "spec-review-gate",
+    "implement",
+    "review",
+    "smoke-test",
+    "ux-acceptance",
+    "pm-commercial-review",
+    "publish-generalization-gate",
+    "deploy",
+    "ledger"
+  ]
+}

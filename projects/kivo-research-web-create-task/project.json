@@ -1,0 +1,18 @@
+{
+  "slug": "kivo-research-web-create-task",
+  "description": "P0-2: 调研页「创建任务」按钮启用决策与实施;Web 是否支持创建调研需 PM 决策(spec 挑战);若支持则启用按钮 + 接 API,若不支持则隐藏表单 + 加 IM 引导",
+  "parentProject": "unnamed",
+  "createdAt": "2026-05-24T06:10:53.880Z",
+  "stages": [
+    "spec",
+    "spec-review-gate",
+    "implement",
+    "review",
+    "smoke-test",
+    "ux-acceptance",
+    "pm-commercial-review",
+    "publish-generalization-gate",
+    "deploy",
+    "ledger"
+  ]
+}

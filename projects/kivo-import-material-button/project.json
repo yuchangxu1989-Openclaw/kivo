@@ -1,0 +1,18 @@
+{
+  "slug": "kivo-import-material-button",
+  "description": "P0-1: 原始资料库「导入素材」按钮点击无响应修复;陌生人喂不进资料阻断;接通文件上传/URL 导入对话框;视觉白底",
+  "parentProject": "unnamed",
+  "createdAt": "2026-05-24T06:10:53.582Z",
+  "stages": [
+    "spec",
+    "spec-review-gate",
+    "implement",
+    "review",
+    "smoke-test",
+    "ux-acceptance",
+    "pm-commercial-review",
+    "publish-generalization-gate",
+    "deploy",
+    "ledger"
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "consumers": [
+    {
+      "path": "../../hooks/kivo-intent-injection/handler.js",
+      "type": "hook",
+      "description": "Gateway 知识注入 hook",
+      "loadTest": "node -e \"import('../../hooks/kivo-intent-injection/handler.js')\""
+    },
+    {
+      "path": "../../scripts/kivo-session-extract-cron.sh",
+      "type": "cron",
+      "description": "会话知识提取定时任务",
+      "loadTest": "bash -n ../../scripts/kivo-session-extract-cron.sh"
+    },
+    {
+      "path": "../../scripts/memory-promote.sh",
+      "type": "cron",
+      "description": "记忆晋升定时任务",
+      "loadTest": "bash -n ../../scripts/memory-promote.sh"
+    }
+  ]
+}

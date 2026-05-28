@@ -1,0 +1,43 @@
+{
+  "summary": {
+    "l1": {
+      "pass": false,
+      "total": 0,
+      "covered": 0
+    },
+    "l2": {
+      "pass": true,
+      "total": 0,
+      "covered": 0,
+      "needsReview": 0
+    },
+    "l3": {
+      "pass": true,
+      "total": 0,
+      "alive": 0
+    },
+    "overall": "fail",
+    "timestamp": "2026-05-22T20:33:52.138Z",
+    "blockers": [
+      "L1 file-level scan failed: uncovered FR, compile failure, or test failure."
+    ]
+  },
+  "l1": {
+    "level": "l1",
+    "pass": false,
+    "timestamp": "2026-05-22T20:33:52.135Z",
+    "entries": [],
+    "compile": {
+      "command": "npx tsc --noEmit",
+      "passed": true,
+      "exitCode": 0,
+      "output": ""
+    },
+    "tests": {
+      "command": "npm test",
+      "passed": false,
+      "exitCode": 1,
+      "output": "\n> @self-evolving-harness/kivo@1.29.4 test\n> vitest run\n\n\n RUN  v3.2.4 /root/.openclaw/workspace/projects/kivo\n\n ❯ __tests__/e2e.test.ts (30 tests | 4 failed) 40651ms\n   ✓ E2E: Document Ingestion Full Chain > should ingest via onSessionMessage and produce KnowledgeEntries 32ms\n   ✓ E2E: Document Ingestion Full Chain > should persist entries queryable via Kivo.query after ingestion 18ms\n   ✓ E2E: Document Ingestion Full Chain > should handle multiple messages building up knowledge base 28ms\n   ✓ E2E: Document Ingestion Full Chain > should propagate agentId into source reference 15ms\n   ✓ E2E: Document Extraction → Query > should parse markdown, extract entries, save, and query 9ms\n   ✓ E2E: Document Extraction → Query > should extract entries with correct metadata from frontmatter 5ms\n   ✓ E2E: Document Extraction → Query > should integrate extraction with Kivo ingest and query 16ms\n   ✓ E2E: Conflict Detection Full Chain > should detect conflict between contradictory knowledge entries 24ms\n   ✓ E2E: Conflict Detection Full Chain > should resolve conflict with newer-wins and mark loser as superseded 27ms\n   ✓ E2E: Conflict Detection Full Chain > should resolve conflict with confidence-wins strategy 26ms\n   ✓ E2E: Conflict Detection Full Chain > should handle manual resolution strategy without superseding 26ms\n   ✓ E2E: Conflict Detection Full Chain > should not detect conflict for unrelated knowledge 23ms\n   × E2E: Context Injection Full Chain > should inject relevant context within token budget 10050ms\n     → Test timed out in 10000ms.\nIf this is a long-running test, pass a timeout value as the last argument or configure it globally with \"testTimeout\".\n   ✓ E2E: Context Injection Full Chain > should return empty context when no relevant entries exist 17ms\n   × E2E: Context Injection Full Chain > should respect small token budget by truncating results 10015ms\n     → Test timed out in 10000ms.\nIf this is a long-running test, pass a timeout value as the last argument o…"
+    }
+  }
+}

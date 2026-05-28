@@ -1,0 +1,18 @@
+{
+  "slug": "kivo-walkthrough-p1-wiki",
+  "description": "修复 KIVO 走查 P1：Default Space 404 + wiki_page 详情",
+  "parentProject": "unnamed",
+  "createdAt": "2026-05-24T13:17:56.901Z",
+  "stages": [
+    "spec",
+    "spec-review-gate",
+    "implement",
+    "review",
+    "smoke-test",
+    "ux-acceptance",
+    "pm-commercial-review",
+    "publish-generalization-gate",
+    "deploy",
+    "ledger"
+  ]
+}

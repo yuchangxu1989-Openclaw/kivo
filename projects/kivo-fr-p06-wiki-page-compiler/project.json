@@ -1,0 +1,18 @@
+{
+  "slug": "kivo-fr-p06-wiki-page-compiler",
+  "description": "FR-P06 Wiki 页面聚合编译器：同主题原子条目自动编译为结构化页面，双向链接，事件驱动重生成",
+  "parentProject": "unnamed",
+  "createdAt": "2026-05-24T10:32:54.650Z",
+  "stages": [
+    "spec",
+    "spec-review-gate",
+    "implement",
+    "review",
+    "smoke-test",
+    "ux-acceptance",
+    "pm-commercial-review",
+    "publish-generalization-gate",
+    "deploy",
+    "ledger"
+  ]
+}

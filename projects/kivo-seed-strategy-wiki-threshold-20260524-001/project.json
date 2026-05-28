@@ -1,0 +1,18 @@
+{
+  "slug": "kivo-seed-strategy-wiki-threshold-20260524-001",
+  "description": "",
+  "parentProject": "unnamed",
+  "createdAt": "2026-05-24T11:41:11.697Z",
+  "stages": [
+    "spec",
+    "spec-review-gate",
+    "implement",
+    "review",
+    "smoke-test",
+    "ux-acceptance",
+    "pm-commercial-review",
+    "publish-generalization-gate",
+    "deploy",
+    "ledger"
+  ]
+}
