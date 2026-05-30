@@ -81,6 +81,7 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type') || undefined;
     const excludeTypes = searchParams.get('excludeTypes')?.split(',').filter(Boolean) || undefined;
     const status = searchParams.get('status') || undefined;
+    const includeAll = searchParams.get('includeAll') === 'true';
     const domain = searchParams.get('domain') || undefined;
     const sort = searchParams.get('sort') || 'updatedAt';
     const source = searchParams.get('source') || undefined;
@@ -110,6 +111,7 @@ export async function GET(request: NextRequest) {
       sort,
       page,
       pageSize,
+      includeAll,
 
     });
 

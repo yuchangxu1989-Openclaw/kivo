@@ -1,4 +1,5 @@
-import { WikiAggregationEngine, WikiAdmissionPipeline, slugify } from '@kivo/wiki/index';
+import { WikiAdmissionPipeline, slugify } from '@kivo/wiki/admission-pipeline';
+import { WikiAggregationEngine } from '@kivo/wiki/aggregation-engine';
 import type { WikiEntryRecord, WikiLinkRecord, WikiPageVersionRecord } from '@kivo/wiki/index';
 import { getWikiRepository } from '@/lib/wiki-engine';
 

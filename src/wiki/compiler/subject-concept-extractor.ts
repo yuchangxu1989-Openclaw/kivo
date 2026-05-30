@@ -186,6 +186,22 @@ export class SubjectConceptExtractor {
       return result;
     }
 
+    // FR-P04 rewrite: domain extraction disabled (stop-the-bleed).
+    // 领域材料提取管线产出的「概念/公式/定理/例题/性质」与 FR-A07 意图知识定义正面冲突，
+    // 且无下游真实消费，治理引擎每轮都要回收它灌进 entries 表的噪音。
+    // 在重写为独立领域知识库（独立表 + 独立质量门禁）之前，禁止它直接写 entries 表。
+    // 重新启用：把下面这个常量改回 false 即可恢复原 INSERT 逻辑。
+    const DOMAIN_EXTRACTION_DISABLED: boolean = true;
+    if (DOMAIN_EXTRACTION_DISABLED) {
+      console.warn(
+        `[subject-concept-extractor] domain extraction disabled per FR-P04 rewrite; ` +
+          `skipping INSERT for material=${materialId} (chunks=${chunks.length}). ` +
+          `No entries written until domain knowledge store is rebuilt.`,
+      );
+      result.errors.push('domain extraction disabled per FR-P04 rewrite (no entries written)');
+      return result;
+    }
+
     const insertEntry = this.db.prepare(`
       INSERT INTO entries (
         id, type, title, content, summary, source_json, confidence, status,

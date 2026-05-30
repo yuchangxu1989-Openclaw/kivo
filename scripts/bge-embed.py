@@ -9,15 +9,6 @@ Modes:
      Response: {"embeddings": [[...], [...]]}
      POST /v1/embeddings  body: {"model": "bge-m3", "input": ["text1", "text2"]}
      Response: OpenAI-compatible embeddings response
-
-Usage:
-  # Pipe mode (legacy, fallback):
-  echo '["hello world", "你好世界"]' | python3 scripts/bge-embed.py
-
-  # HTTP serve mode:
-  python3 scripts/bge-embed.py --serve
-  curl -s http://localhost:9876/embed -H 'Content-Type: application/json' -d '{"texts":["测试"]}'
-  curl -s http://localhost:9876/v1/embeddings -H 'Content-Type: application/json' -d '{"model":"bge-m3","input":["测试"]}'
 """
 import sys
 import json
@@ -26,10 +17,13 @@ import argparse
 import os
 from pathlib import Path
 from urllib import request, error
+from concurrent.futures import ThreadPoolExecutor
 
 # Embedding provider defaults. Override with environment variables.
 os.environ.setdefault("EMBEDDING_PROVIDER", "volcengine")
 os.environ.setdefault("VOLCENGINE_ENDPOINT", "ep-20260526003131-fgvsx")
+os.environ.setdefault("EMBED_BATCH_LIMIT", "50")
+os.environ.setdefault("EMBED_WORKERS", "8")
 
 # Singleton guard: only one bge-embed instance at a time
 _lock_fd = open("/tmp/bge-embed.lock", "w")
@@ -78,10 +72,8 @@ def read_ark_api_key_from_openclaw():
 
 def run_pipe_mode(model):
     """Original pipe mode: read JSON lines from stdin, write embeddings to stdout."""
-    # Signal ready
     print(json.dumps({"status": "ready", "model": "bge-small-zh-v1.5", "dimensions": 512}), flush=True)
 
-    # Loop: read one JSON line, process, write one JSON line
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -126,6 +118,8 @@ def run_serve_mode(port=9876):
     VOLCENGINE_ENDPOINT = os.environ.get("VOLCENGINE_ENDPOINT", "ep-20260526003131-fgvsx")
     VOLCENGINE_MODEL_NAME = "doubao-embedding-vision-251215"
     VOLCENGINE_DIMENSIONS = 2048
+    EMBED_BATCH_LIMIT = max(1, int(os.environ.get("EMBED_BATCH_LIMIT", "50")))
+    EMBED_WORKERS = max(1, int(os.environ.get("EMBED_WORKERS", "8")))
 
     if PROVIDER == "volcengine" and not VOLCENGINE_API_KEY:
         print(json.dumps({"error": "VOLCENGINE_API_KEY is required when EMBEDDING_PROVIDER=volcengine"}), flush=True)
@@ -166,29 +160,38 @@ def run_serve_mode(port=9876):
             raise ValueError("Ollama response missing embedding array")
         return embedding
 
-    def volcengine_embed(text):
+    def volcengine_embed_one(text):
         payload = {
             "model": VOLCENGINE_ENDPOINT,
             "input": [{"type": "text", "text": text}],
         }
         headers = {"Authorization": f"Bearer {VOLCENGINE_API_KEY}"}
-        data = http_json(VOLCENGINE_URL, payload=payload, headers=headers, timeout=60)
-        embedding = None
+        data = http_json(VOLCENGINE_URL, payload=payload, headers=headers, timeout=120)
         response_data = data.get("data")
         if isinstance(response_data, dict):
             embedding = response_data.get("embedding")
+            if isinstance(embedding, list):
+                return embedding
         elif isinstance(response_data, list) and response_data:
             first = response_data[0]
-            if isinstance(first, dict):
-                embedding = first.get("embedding")
-        if not isinstance(embedding, list):
-            raise ValueError("Volcengine response missing embedding array")
-        return embedding
+            if isinstance(first, dict) and isinstance(first.get("embedding"), list):
+                return first.get("embedding")
+        raise ValueError("Volcengine response missing embedding array")
 
-    def embed_text(text):
+    def volcengine_embed_batch(texts):
+        if len(texts) > EMBED_BATCH_LIMIT:
+            result = []
+            for start in range(0, len(texts), EMBED_BATCH_LIMIT):
+                result.extend(volcengine_embed_batch(texts[start:start + EMBED_BATCH_LIMIT]))
+            return result
+        with ThreadPoolExecutor(max_workers=min(EMBED_WORKERS, len(texts) or 1)) as pool:
+            return list(pool.map(volcengine_embed_one, texts))
+
+    def embed_texts(texts):
         if PROVIDER == "volcengine":
-            return volcengine_embed(text)
-        return ollama_embed(text)
+            return volcengine_embed_batch(texts)
+        with ThreadPoolExecutor(max_workers=min(EMBED_WORKERS, len(texts) or 1)) as pool:
+            return list(pool.map(ollama_embed, texts))
 
     def active_model_name(requested_model=None):
         if PROVIDER == "volcengine":
@@ -200,8 +203,8 @@ def run_serve_mode(port=9876):
 
     class EmbedHandler(BaseHTTPRequestHandler):
         def do_POST(self):
-            if self.path not in {"/embed", "/v1/embeddings"}:
-                json_response(self, 404, {"error": "Not found. Use POST /embed or POST /v1/embeddings"})
+            if self.path not in {"/embed", "/v1/embeddings", "/api/embeddings"}:
+                json_response(self, 404, {"error": "Not found. Use POST /embed, POST /v1/embeddings, or POST /api/embeddings"})
                 return
 
             content_length = int(self.headers.get("Content-Length", 0))
@@ -217,6 +220,7 @@ def run_serve_mode(port=9876):
                 return
 
             is_openai_compat = self.path == "/v1/embeddings"
+            is_ollama_compat = self.path == "/api/embeddings"
             if is_openai_compat:
                 input_value = data.get("input")
                 if isinstance(input_value, str):
@@ -226,6 +230,12 @@ def run_serve_mode(port=9876):
                 else:
                     json_response(self, 400, {"error": "Body must have 'input' as a string or array of strings"})
                     return
+            elif is_ollama_compat:
+                prompt = data.get("prompt")
+                if not isinstance(prompt, str):
+                    json_response(self, 400, {"error": "Body must have 'prompt' as string"})
+                    return
+                texts = [prompt]
             else:
                 texts = data.get("texts")
                 if not isinstance(texts, list) or not all(isinstance(t, str) for t in texts):
@@ -238,14 +248,16 @@ def run_serve_mode(port=9876):
                         "object": "list",
                         "data": [],
                         "model": active_model_name(data.get("model")),
-                        "usage": {"prompt_tokens": sum(len(t) for t in texts), "total_tokens": sum(len(t) for t in texts)},
+                        "usage": {"prompt_tokens": 0, "total_tokens": 0},
                     })
+                elif is_ollama_compat:
+                    json_response(self, 200, {"embedding": []})
                 else:
                     json_response(self, 200, {"embeddings": [], "dimensions": active_dimensions(), "count": 0})
                 return
 
             try:
-                result = [embed_text(text) for text in texts]
+                result = embed_texts(texts)
                 if is_openai_compat:
                     response = {
                         "object": "list",
@@ -256,6 +268,8 @@ def run_serve_mode(port=9876):
                         "model": active_model_name(data.get("model")),
                         "usage": {"prompt_tokens": sum(len(t) for t in texts), "total_tokens": sum(len(t) for t in texts)},
                     }
+                elif is_ollama_compat:
+                    response = {"embedding": result[0]}
                 else:
                     response = {"embeddings": result, "dimensions": active_dimensions(), "count": len(result)}
                 json_response(self, 200, response)
@@ -276,16 +290,16 @@ def run_serve_mode(port=9876):
                 json_response(self, 404, {"error": "Use POST /embed or GET /health"})
 
         def log_message(self, format, *args):
-            # Log to stderr for systemd journal
             sys.stderr.write(f"[bge-embed] {args[0]} {args[1]} {args[2]}\n")
 
     server = HTTPServer(("127.0.0.1", port), EmbedHandler)
     print(f"BGE Embedding HTTP proxy started on http://127.0.0.1:{port}", flush=True)
     if PROVIDER == "volcengine":
-        print(f"  Backend: volcengine endpoint={VOLCENGINE_ENDPOINT}", flush=True)
+        print(f"  Backend: volcengine endpoint={VOLCENGINE_ENDPOINT} batch_limit={EMBED_BATCH_LIMIT}", flush=True)
     else:
         print(f"  Backend: {OLLAMA_BASE_URL} model={OLLAMA_MODEL}", flush=True)
     print(f"  POST /embed          - encode texts", flush=True)
+    print(f"  POST /api/embeddings - Ollama-compatible single prompt", flush=True)
     print(f"  POST /v1/embeddings  - OpenAI-compatible embeddings", flush=True)
     print(f"  GET  /health         - health check", flush=True)
 

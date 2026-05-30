@@ -19,6 +19,7 @@ export interface ApiError {
   error: {
     code: string;
     message: string;
+    hint?: string;
     details?: unknown;
   };
 }
@@ -35,6 +36,7 @@ export interface VersionConflictError {
   error: {
     code: 'VERSION_CONFLICT';
     message: string;
+    hint?: string;
     details: {
       currentVersion: number;
       expectedVersion: number;

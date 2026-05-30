@@ -11,6 +11,8 @@ import Database from 'better-sqlite3';
 import type { KnowledgeEntry as CoreKnowledgeEntry, KnowledgeType, EntryStatus, KnowledgeSource, KnowledgeNature, KnowledgeFunction } from '@self-evolving-harness/kivo';
 import { resolveKivoDbPath } from '@/lib/db';
 
+const ACTIVE_ENTRY_STATUS = 'active';
+
 type CoreSourceRange = {
   documentId: string;
   page?: number;
@@ -112,6 +114,7 @@ export interface PaginatedOptions {
   pageSize: number;
   excludeTypes?: string[];
   includeTypes?: string[];
+  includeAll?: boolean;
 }
 
 export interface PaginatedResult<T> {
@@ -149,6 +152,9 @@ export function findEntriesPaginated(opts: PaginatedOptions): PaginatedResult<Kn
   if (opts.status) {
     conditions.push('status = ?');
     params.push(opts.status);
+  } else if (!opts.includeAll) {
+    conditions.push('status = ?');
+    params.push(ACTIVE_ENTRY_STATUS);
   }
   if (opts.domain) {
     conditions.push('LOWER(domain) LIKE ?');

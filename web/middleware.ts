@@ -32,7 +32,7 @@ export function middleware(request: NextRequest) {
   }
 
   // Allow static assets and Next.js internals
-  if (pathname.startsWith('/_next') || pathname.startsWith('/favicon') || pathname === '/pdf.worker.min.mjs') {
+  if (pathname.startsWith('/_next') || pathname.startsWith('/favicon')) {
     return NextResponse.next();
   }
 

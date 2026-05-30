@@ -11,12 +11,6 @@
       "type": "cron",
       "description": "会话知识提取定时任务",
       "loadTest": "bash -n ../../scripts/kivo-session-extract-cron.sh"
-    },
-    {
-      "path": "../../scripts/memory-promote.sh",
-      "type": "cron",
-      "description": "记忆晋升定时任务",
-      "loadTest": "bash -n ../../scripts/memory-promote.sh"
     }
   ]
 }
