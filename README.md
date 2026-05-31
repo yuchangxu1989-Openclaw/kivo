@@ -1,4 +1,4 @@
-# KIVO
+# KIVO — 知识自主更新平台
 
 > Knowledge & Intent Evolution Platform for agent workspaces.
 
