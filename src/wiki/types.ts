@@ -332,8 +332,9 @@ export interface MultimodalTextFragment {
   coordinates?: unknown;
   /** FR-A02 FR-C — per-fragment source channel ('audio' | 'keyframe' | 'text') */
   channel?: string;
-  /** FR-A02 FR-C — flag fragments judged as duplicate by the router (excluded from staging) */
-  duplicateMarker?: boolean;
+  /** FR-A02 FR-C — flag fragments judged as duplicate by the router (excluded from staging).
+   *  Truthy value; may carry a descriptive reason string (e.g. 'audio-overlap-100pct'). */
+  duplicateMarker?: boolean | string;
 }
 
 export interface MultimodalRouteResult {

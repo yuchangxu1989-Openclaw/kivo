@@ -4,10 +4,10 @@
  */
 
 import Database from 'better-sqlite3';
-import type { KnowledgeEntry, EntryStatus, KnowledgeType, KnowledgeSource, KnowledgeNature, KnowledgeFunction } from '../types/index.js';
+import type { KnowledgeEntry, EntryStatus, KnowledgeType, KnowledgeSource, KnowledgeNature, KnowledgeFunction, EntryType } from '../types/index.js';
 import { shortenKnowledgeTitle } from '../extraction/extraction-utils.js';
 import { shouldBypassExternalModelsInTests } from '../utils/test-runtime.js';
-import type { StorageProvider, SemanticQuery, SearchResult, SaveOptions } from './storage-provider.js';
+import type { StorageProvider, SemanticQuery, SearchResult, SaveOptions, GraphExpansionOptions, GraphExpansionResult } from './storage-provider.js';
 import { IntakeQualityGate, type QualityGateDecision } from './intake-quality-gate.js';
 import { ensureIntentSchema } from './intent-repository.js';
 
@@ -22,6 +22,20 @@ function cosineSimilarity(a: number[], b: number[]): number {
   }
   const denom = Math.sqrt(normA) * Math.sqrt(normB);
   return denom === 0 ? 0 : dot / denom;
+}
+
+/** Clamp an edge weight to [0, 1], treating non-finite values as 0. */
+function clampWeight(value: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
+/** Map an FTS5 bm25 rank (<= 0, more negative = stronger) to a (0, 1) score. */
+function ftsRankToScore(rank: number): number {
+  if (!Number.isFinite(rank)) return 0.5;
+  const s = 1 / (1 + Math.exp(rank));
+  return Math.max(0, Math.min(1, s));
 }
 
 export interface SQLiteProviderOptions {
@@ -90,6 +104,13 @@ export class SQLiteProvider implements StorageProvider {
     }
     if (!colNames.has('embedding')) {
       this.db.exec(`ALTER TABLE entries ADD COLUMN embedding BLOB`);
+    }
+    // FR-B03 AC7 / FR-P02-5: subject-material association columns
+    if (!colNames.has('subject_id')) {
+      this.db.exec(`ALTER TABLE entries ADD COLUMN subject_id TEXT`);
+    }
+    if (!colNames.has('entry_type')) {
+      this.db.exec(`ALTER TABLE entries ADD COLUMN entry_type TEXT`);
     }
 
     ensureIntentSchema(this.db);
@@ -312,6 +333,8 @@ export class SQLiteProvider implements StorageProvider {
     const nature = entry.nature ?? null;
     const functionTag = entry.functionTag ?? null;
     const knowledgeDomain = entry.knowledgeDomain ?? null;
+    const subjectId = entry.subjectId ?? entry.source?.subjectId ?? null;
+    const entryType = entry.entryType ?? null;
     const metadataJson = entry.metadata || entry.sourceRange
       ? JSON.stringify({ ...(entry.metadata ?? {}), ...(entry.sourceRange ? { sourceRange: entry.sourceRange } : {}) })
       : null;
@@ -324,23 +347,23 @@ export class SQLiteProvider implements StorageProvider {
         this.db.prepare(`
           UPDATE entries SET type = ?, title = ?, content = ?, summary = ?, source_json = ?,
             confidence = ?, status = ?, tags_json = ?, domain = ?, version = ?,
-            supersedes = ?, similar_sentences = ?, nature = ?, function_tag = ?, knowledge_domain = ?, metadata_json = ?, updated_at = ?
+            supersedes = ?, similar_sentences = ?, nature = ?, function_tag = ?, knowledge_domain = ?, metadata_json = ?, subject_id = ?, entry_type = ?, updated_at = ?
           WHERE id = ?
         `).run(
           entry.type, normalizedTitle, entry.content, entry.summary, sourceJson,
           entry.confidence, entry.status, tagsJson, entry.domain ?? null,
           existing.version + 1, entry.supersedes ?? null, similarSentencesJson,
-          nature, functionTag, knowledgeDomain, metadataJson, now, entry.id
+          nature, functionTag, knowledgeDomain, metadataJson, subjectId, entryType, now, entry.id
         );
       } else {
         this.db.prepare(`
-          INSERT INTO entries (id, type, title, content, summary, source_json, confidence, status, tags_json, domain, version, supersedes, similar_sentences, nature, function_tag, knowledge_domain, metadata_json, embedding, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO entries (id, type, title, content, summary, source_json, confidence, status, tags_json, domain, version, supersedes, similar_sentences, nature, function_tag, knowledge_domain, metadata_json, embedding, subject_id, entry_type, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           entry.id, entry.type, normalizedTitle, entry.content, entry.summary, sourceJson,
           entry.confidence, entry.status, tagsJson, entry.domain ?? null,
           entry.version ?? 1, entry.supersedes ?? null, similarSentencesJson,
-          nature, functionTag, knowledgeDomain, metadataJson, embeddingBlob,
+          nature, functionTag, knowledgeDomain, metadataJson, embeddingBlob, subjectId, entryType,
           entry.createdAt.toISOString(), entry.updatedAt.toISOString()
         );
       }
@@ -566,6 +589,123 @@ export class SQLiteProvider implements StorageProvider {
     return row.cnt;
   }
 
+  /**
+   * Degraded full-text recall (FR-P03 AC7) used when vector search is unavailable.
+   * Uses the FTS5 trigram index; falls back to LIKE when the query has no usable
+   * trigram tokens (e.g. very short queries). Excludes intent + superseded entries.
+   */
+  async fallbackFullTextSearch(query: string, limit = 20): Promise<SearchResult[]> {
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+
+    // FTS5 trigram tokenizer needs >= 3 chars to produce tokens.
+    if (trimmed.length >= 3) {
+      try {
+        const rows = this.db.prepare(`
+          SELECT e.*, bm25(entries_fts) AS _rank
+          FROM entries_fts
+          JOIN entries e ON e.rowid = entries_fts.rowid
+          WHERE entries_fts MATCH ?
+            AND e.type != 'intent'
+            AND e.status != 'superseded'
+          ORDER BY _rank ASC
+          LIMIT ?
+        `).all(trimmed, limit) as Array<EntryRow & { _rank: number }>;
+        if (rows.length > 0) {
+          return rows.map(row => ({
+            entry: this.rowToEntry(row),
+            score: ftsRankToScore(row._rank),
+          }));
+        }
+      } catch {
+        // MATCH syntax error on punctuation-heavy queries — fall through to LIKE.
+      }
+    }
+
+    // LIKE fallback for short queries or when FTS yields nothing.
+    const like = `%${trimmed.replace(/[%_]/g, '')}%`;
+    const rows = this.db.prepare(`
+      SELECT * FROM entries
+      WHERE type != 'intent'
+        AND status != 'superseded'
+        AND (title LIKE ? OR content LIKE ? OR summary LIKE ?)
+      ORDER BY updated_at DESC
+      LIMIT ?
+    `).all(like, like, like, limit) as EntryRow[];
+    return rows.map(row => ({
+      entry: this.rowToEntry(row),
+      score: 0.5,
+    }));
+  }
+
+  /**
+   * One-hop graph expansion (FR-P03 AC7) over the given seed entry IDs.
+   * Reads the undirected graph_edges table written by subject-graph-writer; for
+   * each edge touching a seed, the neighbour on the other end is returned with the
+   * edge weight as strength. Self-loops and edges to other seeds are skipped.
+   * Returns [] when the graph table has not been created yet.
+   */
+  async expandGraphOneHop(
+    entryIds: string[],
+    options?: GraphExpansionOptions,
+  ): Promise<GraphExpansionResult[]> {
+    if (entryIds.length === 0) return [];
+
+    const tableExists = this.db.prepare(
+      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='graph_edges'"
+    ).get();
+    if (!tableExists) return [];
+
+    const seedSet = new Set(entryIds);
+    const limitPerSeed = options?.limitPerSeed && options.limitPerSeed > 0 ? options.limitPerSeed : 5;
+    const placeholders = entryIds.map(() => '?').join(',');
+
+    const edges = this.db.prepare(`
+      SELECT source_id, target_id, association_type, weight
+      FROM graph_edges
+      WHERE source_id IN (${placeholders}) OR target_id IN (${placeholders})
+      ORDER BY weight DESC
+    `).all(...entryIds, ...entryIds) as Array<{
+      source_id: string;
+      target_id: string;
+      association_type: string;
+      weight: number;
+    }>;
+
+    const perSeedCount = new Map<string, number>();
+    const results: GraphExpansionResult[] = [];
+    const entryCache = new Map<string, KnowledgeEntry | null>();
+
+    for (const edge of edges) {
+      const sourceIsSeed = seedSet.has(edge.source_id);
+      const seedEntryId = sourceIsSeed ? edge.source_id : edge.target_id;
+      const neighbourId = sourceIsSeed ? edge.target_id : edge.source_id;
+
+      // Skip self-loops and edges whose neighbour is itself a seed.
+      if (neighbourId === seedEntryId || seedSet.has(neighbourId)) continue;
+
+      const used = perSeedCount.get(seedEntryId) ?? 0;
+      if (used >= limitPerSeed) continue;
+
+      if (!entryCache.has(neighbourId)) {
+        const row = this.db.prepare('SELECT * FROM entries WHERE id = ?').get(neighbourId) as EntryRow | undefined;
+        entryCache.set(neighbourId, row ? this.rowToEntry(row) : null);
+      }
+      const entry = entryCache.get(neighbourId);
+      if (!entry || entry.status === 'superseded') continue;
+
+      perSeedCount.set(seedEntryId, used + 1);
+      results.push({
+        entry,
+        strength: clampWeight(edge.weight),
+        relationType: edge.association_type,
+        seedEntryId,
+      });
+    }
+
+    return results;
+  }
+
   async close(): Promise<void> {
     await this.qualityGate.close();
     this.db.close();
@@ -602,6 +742,8 @@ export class SQLiteProvider implements StorageProvider {
       nature: (row.nature ?? undefined) as KnowledgeNature | undefined,
       functionTag: (row.function_tag ?? undefined) as KnowledgeFunction | undefined,
       knowledgeDomain: row.knowledge_domain ?? undefined,
+      subjectId: row.subject_id ?? undefined,
+      entryType: (row.entry_type ?? undefined) as EntryType | undefined,
       metadata,
       sourceRange: metadata?.sourceRange as KnowledgeEntry['sourceRange'] | undefined,
       createdAt: new Date(row.created_at),
@@ -627,6 +769,8 @@ interface EntryRow {
   nature: string | null;
   function_tag: string | null;
   knowledge_domain: string | null;
+  subject_id: string | null;
+  entry_type: string | null;
   metadata_json: string | null;
   created_at: string;
   updated_at: string;

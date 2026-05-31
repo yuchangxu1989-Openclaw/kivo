@@ -95,6 +95,7 @@ export class RuleExtractor {
         content: rule.directive,
         summary: generateSummary(rule.directive),
         source: rule.source,
+        subjectId: rule.source.subjectId,
         confidence: rule.confidence,
         status: 'active',
         tags: uniqueTags(['rule', rule.priority, ...rule.tags]),

@@ -14,10 +14,13 @@
  *   AC7: All semantic understanding via LLM, zero regex/template
  */
 
-import { shortenKnowledgeTitle } from '../extraction/extraction-utils.js';
+import { shortenKnowledgeTitle, generateSummary } from '../extraction/extraction-utils.js';
 import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { OpenAILLMProvider } from '../extraction/llm-extractor.js';
 import { resolveLlmConfig } from './resolve-llm-config.js';
+import type { KnowledgeEntry, KnowledgeMetadata, KnowledgeSource } from '../types/index.js';
 
 // LLM provider singleton for source type classification (lazy-initialized)
 let _classificationLlm: OpenAILLMProvider | null = null;
@@ -51,6 +54,12 @@ export interface BadcaseEntry {
   sourceDate: string;
   /** Optional file path origin */
   filePath?: string;
+  /** Session identifier when extracted from a `.jsonl.reset.*` session history. */
+  sessionId?: string;
+  /** 1-based line number in the source session history. */
+  lineNumber?: number;
+  /** Surrounding conversation context preserved for traceability. */
+  context?: string;
 }
 
 export interface ExtractedIntent {
@@ -76,6 +85,24 @@ export interface ExtractedIntent {
   sourceType: BadcaseSourceType;
   /** Date from the badcase */
   sourceDate: string;
+  /** Source file path of the originating badcase, when available. */
+  sourceFilePath?: string;
+  /** Session identifier of the originating `.jsonl.reset.*` history. */
+  sourceSessionId?: string;
+  /** 1-based line number in the source session history. */
+  sourceLineNumber?: number;
+  /** Surrounding conversation context preserved for traceability. */
+  sourceContext?: string;
+}
+
+export interface ExtractBadcasesFromResetJsonlOptions {
+  limit?: number;
+  contextRadius?: number;
+}
+
+export interface IntentKnowledgeEntrySource {
+  materialId: string;
+  subjectId?: string;
 }
 
 // ── Badcase file parser ──────────────────────────────────────────────────────
@@ -121,6 +148,146 @@ export async function parseBadcaseText(text: string, filePath?: string): Promise
   }
 
   return entries;
+}
+
+/**
+ * Extract badcase candidates from a Codex/OpenClaw `.jsonl.reset.*` session history.
+ */
+export async function extractBadcasesFromResetJsonl(
+  jsonl: string,
+  filePath: string,
+  options: ExtractBadcasesFromResetJsonlOptions = {},
+): Promise<BadcaseEntry[]> {
+  const lines = jsonl.split(/\r?\n/);
+  const parsedMessages = lines.map((line, index) => ({
+    line,
+    lineNumber: index + 1,
+    message: parseSessionMessage(line),
+  }));
+  const contextRadius = options.contextRadius ?? 1;
+  const sessionId = basename(filePath);
+  const results: BadcaseEntry[] = [];
+
+  for (const parsed of parsedMessages) {
+    if (!parsed.message) continue;
+    const candidateText = parsed.message.text.trim();
+    if (!isSubstantiveBadcaseCandidate(candidateText)) continue;
+
+    const sourceType = detectSourceTypeSync(candidateText);
+    results.push({
+      text: candidateText,
+      sourceType,
+      sourceDate: extractDate(candidateText) ?? extractDate(parsed.message.timestamp) ?? new Date().toISOString().slice(0, 10),
+      filePath,
+      sessionId,
+      lineNumber: parsed.lineNumber,
+      context: buildSessionContext(parsedMessages, parsed.lineNumber, contextRadius),
+    });
+
+    if (options.limit && results.length >= options.limit) break;
+  }
+
+  return results;
+}
+
+export function intentsToKnowledgeEntries(
+  intents: ExtractedIntent[],
+  source: IntentKnowledgeEntrySource,
+): KnowledgeEntry[] {
+  const now = new Date();
+  return intents.map(intent => {
+    const resolvedSource: KnowledgeSource = {
+      type: 'conversation',
+      reference: intent.sourceFilePath ?? source.materialId,
+      timestamp: now,
+      context: intent.sourceContext,
+      materialId: source.materialId,
+      subjectId: source.subjectId,
+    };
+
+    return {
+      id: randomUUID(),
+      type: 'intent',
+      title: shortenKnowledgeTitle(intent.title, intent.content),
+      content: intent.content,
+      summary: generateSummary(intent.content),
+      source: resolvedSource,
+      confidence: Math.max(0, Math.min(1, intent.confidence)),
+      status: 'active',
+      tags: intent.tags,
+      metadata: {
+        sourceBadcase: {
+          materialId: source.materialId,
+          sessionId: intent.sourceSessionId,
+          lineNumber: intent.sourceLineNumber,
+          filePath: intent.sourceFilePath,
+        },
+      },
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+      category: 'process',
+      similarSentences: intent.similarSentences,
+      nature: 'methodology',
+      functionTag: 'constraint',
+      subjectId: source.subjectId,
+      entryType: 'mistake',
+    };
+  });
+}
+
+function parseSessionMessage(line: string): { role: string; text: string; timestamp: string } | null {
+  if (!line.trim()) return null;
+  try {
+    const record = JSON.parse(line) as Record<string, unknown>;
+    if (record.type !== 'message') return null;
+    const message = record.message as Record<string, unknown> | undefined;
+    if (!message) return null;
+    const content = Array.isArray(message.content) ? message.content : [];
+    const text = content
+      .map(item => {
+        if (typeof item !== 'object' || item === null) return '';
+        const part = item as Record<string, unknown>;
+        return part.type === 'text' && typeof part.text === 'string' ? part.text : '';
+      })
+      .filter(Boolean)
+      .join('\n');
+    if (!text.trim()) return null;
+    return {
+      role: typeof message.role === 'string' ? message.role : '?',
+      text,
+      timestamp: typeof record.timestamp === 'string' ? record.timestamp : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isSubstantiveBadcaseCandidate(text: string): boolean {
+  const normalized = text.trim();
+  if (normalized.length < 20) return false;
+  const lower = normalized.toLowerCase();
+  return (
+    lower.includes('badcase') ||
+    lower.includes('audit_finding') ||
+    lower.includes('verification_failure') ||
+    lower.includes('验证失败') ||
+    lower.includes('审计发现') ||
+    lower.includes('用户纠偏')
+  );
+}
+
+function buildSessionContext(
+  messages: Array<{ lineNumber: number; message: { role: string; text: string; timestamp: string } | null }>,
+  lineNumber: number,
+  contextRadius: number,
+): string {
+  const start = Math.max(1, lineNumber - contextRadius);
+  const end = lineNumber + contextRadius;
+  return messages
+    .filter(item => item.message && item.lineNumber >= start && item.lineNumber <= end)
+    .map(item => `${item.message!.role}: ${item.message!.text}`)
+    .join('\n');
 }
 
 /**

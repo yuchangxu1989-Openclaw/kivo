@@ -4,7 +4,14 @@
  */
 
 import type { KnowledgeEntry, EntryStatus, KnowledgeType } from '../types/index.js';
-import type { StorageProvider, SemanticQuery, SearchResult, SaveOptions } from './storage-provider.js';
+import type {
+  StorageProvider,
+  SemanticQuery,
+  SearchResult,
+  SaveOptions,
+  GraphExpansionOptions,
+  GraphExpansionResult,
+} from './storage-provider.js';
 
 export class KnowledgeRepository {
   constructor(private readonly provider: StorageProvider) {}
@@ -51,5 +58,26 @@ export class KnowledgeRepository {
 
   async close(): Promise<void> {
     return this.provider.close();
+  }
+
+  // ── Subject-aware injection SPI (FR-P03 AC7) ───────────────────────────────
+
+  /** Degraded full-text recall used when vector search is unavailable. */
+  async fallbackFullTextSearch(query: string, limit?: number): Promise<SearchResult[]> {
+    if (!this.provider.fallbackFullTextSearch) {
+      throw new Error('StorageProvider does not implement fallbackFullTextSearch');
+    }
+    return this.provider.fallbackFullTextSearch(query, limit);
+  }
+
+  /** One-hop graph expansion over the given seed entry IDs. */
+  async expandGraphOneHop(
+    entryIds: string[],
+    options?: GraphExpansionOptions,
+  ): Promise<GraphExpansionResult[]> {
+    if (!this.provider.expandGraphOneHop) {
+      throw new Error('StorageProvider does not implement expandGraphOneHop');
+    }
+    return this.provider.expandGraphOneHop(entryIds, options);
   }
 }

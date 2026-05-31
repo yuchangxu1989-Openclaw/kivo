@@ -142,6 +142,7 @@ export class ConversationExtractor {
       content,
       summary: candidate.summary?.trim() || generateSummary(content),
       source: buildDerivedSource(source, contextWindow),
+      subjectId: source.subjectId,
       confidence,
       status: 'active',
       tags: uniqueTags(candidate.tags),

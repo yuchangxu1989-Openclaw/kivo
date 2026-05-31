@@ -27,6 +27,10 @@ export interface DocumentExtractionResult {
 export interface DocumentMetadata {
   path: string;
   title?: string;
+  /** Source material ID this document was uploaded as (FR-B03 AC7). */
+  materialId?: string;
+  /** Subject node ID of the source material, inherited into entries (FR-B03 AC7). */
+  subjectId?: string;
 }
 
 export type DocumentLLMProvider = LLMProvider;
@@ -450,13 +454,23 @@ export class DocumentExtractor {
       chunkContent,
     );
 
+    // FR-B03 AC7: inherit subject/material from document metadata (or carry source's own).
+    const resolvedMaterialId = metadata.materialId ?? source.materialId;
+    const resolvedSubjectId = metadata.subjectId ?? source.subjectId;
+    const derivedSource: KnowledgeSource = {
+      ...buildDerivedSource(source, `${metadata.path}\n${chunkContent}`),
+      materialId: resolvedMaterialId,
+      subjectId: resolvedSubjectId,
+    };
+
     return {
       id: randomUUID(),
       type,
       title,
       content,
       summary: candidate.summary?.trim() || generateSummary(content),
-      source: buildDerivedSource(source, `${metadata.path}\n${chunkContent}`),
+      source: derivedSource,
+      subjectId: resolvedSubjectId,
       sourceRange,
       confidence,
       status: 'active',

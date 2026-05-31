@@ -32,6 +32,14 @@ export type KnowledgeCategory =
 
 export type EntryStatus = 'active' | 'pending_review' | 'superseded';
 
+/**
+ * Entry type — fine-grained domain-material classification (spec FR-P02-5).
+ * Distinct from `KnowledgeType` (nature) and `KnowledgeCategory` (routing).
+ * Used by subject wiki compilation and typed-entry validation.
+ */
+export const ENTRY_TYPES = ['concept', 'method', 'question', 'mistake', 'annotation'] as const;
+export type EntryType = typeof ENTRY_TYPES[number];
+
 export interface EmbeddingMetadata {
   status: 'ready' | 'pending_rebuild';
   modelId?: string;
@@ -47,6 +55,12 @@ export interface KnowledgeMetadata {
   domainData?: Record<string, unknown>;
   embedding?: EmbeddingMetadata;
   sourceRange?: SourceRange;
+  sourceBadcase?: {
+    materialId?: string;
+    sessionId?: string;
+    lineNumber?: number;
+    filePath?: string;
+  };
 }
 
 /**
@@ -141,6 +155,13 @@ export interface KnowledgeEntry {
   functionTag?: KnowledgeFunction;
   /** Domain: open-ended domain label */
   knowledgeDomain?: string;
+
+  // ── Subject-material association (FR-B03 AC7, FR-P02-5) ──────────────────
+
+  /** Subject node ID this entry belongs to, propagated from the source material. */
+  subjectId?: string;
+  /** Fine-grained domain-material type: concept / method / question / mistake / annotation. */
+  entryType?: EntryType;
 }
 
 export interface KnowledgeSource {
@@ -149,6 +170,10 @@ export interface KnowledgeSource {
   timestamp: Date;
   agent?: string; // which agent produced this
   context?: string; // surrounding context for traceability
+  /** Source material ID this knowledge was extracted from (FR-B03 AC7). */
+  materialId?: string;
+  /** Subject node ID of the source material (FR-B03 AC7). */
+  subjectId?: string;
 }
 
 // ─── Extraction Task (ADR-005) ───────────────────────────────────────────────

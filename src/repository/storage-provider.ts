@@ -40,6 +40,23 @@ export interface SearchResult {
   score: number;
 }
 
+/** Options for one-hop graph expansion when no dedicated graph store is wired. */
+export interface GraphExpansionOptions {
+  /** Max neighbours to return per seed entry. */
+  limitPerSeed?: number;
+}
+
+/** A single one-hop graph neighbour returned by {@link StorageProvider.expandGraphOneHop}. */
+export interface GraphExpansionResult {
+  entry: KnowledgeEntry;
+  /** Edge weight / association strength in [0, 1]. */
+  strength: number;
+  /** Raw association type label (normalized by the caller). */
+  relationType: string;
+  /** ID of the seed entry this neighbour was expanded from. */
+  seedEntryId: string;
+}
+
 export interface StorageProvider {
   save(entry: KnowledgeEntry, options?: SaveOptions): Promise<boolean>;
   findById(id: string): Promise<KnowledgeEntry | null>;
@@ -52,4 +69,13 @@ export interface StorageProvider {
   delete(id: string): Promise<void>;
   count(): Promise<number>;
   close(): Promise<void>;
+
+  // ── Subject-aware injection SPI (FR-P03 AC7) ─────────────────────────────
+  // Optional: implemented by storage backends that support degraded recall and
+  // graph expansion. SQLite implementation lands in a follow-up (Part B).
+
+  /** Degraded full-text recall used when vector search is unavailable. */
+  fallbackFullTextSearch?(query: string, limit?: number): Promise<SearchResult[]>;
+  /** One-hop graph expansion over the given seed entry IDs. */
+  expandGraphOneHop?(entryIds: string[], options?: GraphExpansionOptions): Promise<GraphExpansionResult[]>;
 }
