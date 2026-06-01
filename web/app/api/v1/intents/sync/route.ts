@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import { serverError } from '@/lib/errors';
+import { resolveKivoDbPath } from '@/lib/db';
 import { embedQuery } from '@/lib/semantic-search';
 import Database from 'better-sqlite3';
-import path from 'path';
 import type { ApiResponse } from '@/types';
 
-const DB_PATH = process.env.KIVO_DB_PATH || path.resolve(process.cwd(), '../kivo.db');
+const DB_PATH = resolveKivoDbPath();
 
 /**
  * POST /api/v1/intents/sync

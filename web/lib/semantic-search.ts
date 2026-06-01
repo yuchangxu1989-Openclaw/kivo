@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
-import path from 'path';
+import { resolveKivoDbPath } from './db';
 
-const DB_PATH = process.env.KIVO_DB_PATH || path.resolve(process.cwd(), '../kivo.db');
+const DB_PATH = resolveKivoDbPath();
 const ARK_BASE_URL = (process.env.KIVO_EMBEDDING_BASE_URL || 'http://localhost:9876').replace(/\/$/, '');
 const ARK_MODEL = process.env.KIVO_EMBEDDING_MODEL || 'doubao-embedding-vision-251215';
 const MIN_SCORE = 0.3;
