@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { LLMProvider } from '../adapter/llm-provider.js';
-import type { KnowledgeEntry, KnowledgeSource } from '../types/index.js';
+import type {
+  KnowledgeEntry,
+  KnowledgeSource,
+  KnowledgeScope,
+  TemporalStatus,
+} from '../types/index.js';
 import { KnowledgeRepository } from '../repository/knowledge-repository.js';
 import { SQLiteProvider } from '../repository/sqlite-provider.js';
 import {
@@ -9,6 +14,21 @@ import {
   generateTitle,
   isKnowledgeType,
 } from '../extraction/extraction-utils.js';
+
+const KNOWLEDGE_SCOPES: readonly KnowledgeScope[] = ['global', 'product', 'project', 'session', 'agent'];
+const TEMPORAL_STATUSES: readonly TemporalStatus[] = ['permanent', 'has_expiry', 'needs_review'];
+
+function asScope(value: unknown): KnowledgeScope | undefined {
+  return typeof value === 'string' && (KNOWLEDGE_SCOPES as readonly string[]).includes(value)
+    ? (value as KnowledgeScope)
+    : undefined;
+}
+
+function asTemporalStatus(value: unknown): TemporalStatus | undefined {
+  return typeof value === 'string' && (TEMPORAL_STATUSES as readonly string[]).includes(value)
+    ? (value as TemporalStatus)
+    : undefined;
+}
 
 export interface RealtimeCaptureOptions {
   dbPath: string;
@@ -122,6 +142,9 @@ export async function captureFromMessage(
     summary?: string;
     confidence?: number;
     tags?: string[];
+    scope?: string;
+    temporal_status?: string;
+    source_anchor?: string;
   }>;
 
   try {
@@ -155,6 +178,11 @@ export async function captureFromMessage(
     const content = candidate.content ?? message;
     const title = candidate.title ?? generateTitle(content);
 
+    const scope = asScope(candidate.scope);
+    const temporalStatus = asTemporalStatus(candidate.temporal_status);
+    const sourceAnchor =
+      typeof candidate.source_anchor === 'string' ? candidate.source_anchor.trim() : '';
+
     const entry: KnowledgeEntry = {
       id: randomUUID(),
       type,
@@ -166,6 +194,9 @@ export async function captureFromMessage(
       status: 'active',
       tags: Array.isArray(candidate.tags) ? candidate.tags : [],
       metadata: {
+        ...(scope ? { scope } : {}),
+        ...(temporalStatus ? { temporal_status: temporalStatus } : {}),
+        source_anchor: sourceAnchor,
         domainData: {
           realtimeCapture: {
             sessionId,

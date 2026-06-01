@@ -327,6 +327,16 @@ export class SQLiteProvider implements StorageProvider {
 
     const now = new Date().toISOString();
     const normalizedTitle = shortenKnowledgeTitle(entry.title, entry.content);
+
+    // Soft governance gate: source_anchor should trace every entry back to its origin.
+    // Legacy entries predate this field, so a missing anchor warns but does not block.
+    const sourceAnchor = entry.metadata?.source_anchor;
+    if (typeof sourceAnchor !== 'string' || sourceAnchor.trim() === '') {
+      console.warn(
+        `[KIVO] Entry "${entry.title}" (${entry.id}) missing source_anchor — persisting without provenance anchor`
+      );
+    }
+
     const sourceJson = JSON.stringify(entry.source);
     const tagsJson = JSON.stringify(entry.tags);
     const similarSentencesJson = JSON.stringify(entry.similarSentences ?? []);

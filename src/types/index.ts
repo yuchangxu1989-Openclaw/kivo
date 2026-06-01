@@ -30,7 +30,17 @@ export type KnowledgeCategory =
   | 'experience'   // lessons learned, post-mortems, case studies
   | 'meta';        // meta-knowledge about the knowledge system itself
 
-export type EntryStatus = 'active' | 'pending_review' | 'superseded';
+export type EntryStatus = 'active' | 'pending_review' | 'superseded' | 'conflicted';
+
+/**
+ * Governance scope — where a knowledge entry applies (LLM-extracted, see llm-extractor SYSTEM_PROMPT).
+ */
+export type KnowledgeScope = 'global' | 'product' | 'project' | 'session' | 'agent';
+
+/**
+ * Governance temporal status — how durable a knowledge entry is over time.
+ */
+export type TemporalStatus = 'permanent' | 'has_expiry' | 'needs_review';
 
 /**
  * Entry type — fine-grained domain-material classification (spec FR-P02-5).
@@ -55,6 +65,17 @@ export interface KnowledgeMetadata {
   domainData?: Record<string, unknown>;
   embedding?: EmbeddingMetadata;
   sourceRange?: SourceRange;
+  // ── Governance dimensions (LLM-extracted, read by intent-injection handler) ──
+  /**
+   * Where this knowledge applies. Snake_case to match governance filter read path.
+   * Governance entries set a single KnowledgeScope; the dictionary specialization
+   * (TermMetadata) reuses this slot as a string[] of applicability scopes.
+   */
+  scope?: KnowledgeScope | string[];
+  /** How durable this knowledge is over time. */
+  temporal_status?: TemporalStatus;
+  /** Provenance anchor: "对话ID + 时间戳 + 触发句摘要" for tracing the extraction source. */
+  source_anchor?: string;
   sourceBadcase?: {
     materialId?: string;
     sessionId?: string;

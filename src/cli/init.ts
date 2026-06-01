@@ -113,6 +113,10 @@ function initDatabase(dbPath: string): string {
   if (!entryColumns.includes('embedding')) {
     db.exec('ALTER TABLE entries ADD COLUMN embedding BLOB');
   }
+  // P0-4: 价值衰减治理依赖最近命中时间戳（ISO 字符串，默认 NULL）
+  if (!entryColumns.includes('last_hit_at')) {
+    db.exec('ALTER TABLE entries ADD COLUMN last_hit_at TEXT');
+  }
 
   // Rebuild FTS index after migration
   if (oldFts && !oldFts.sql.includes('trigram')) {

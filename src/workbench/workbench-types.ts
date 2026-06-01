@@ -381,6 +381,7 @@ export const STATUS_TRANSITIONS: Record<EntryStatus, EntryOperation[]> = {
   active: [],
   pending_review: [],
   superseded: [],
+  conflicted: [],
 };
 
 export function availableOperations(status: EntryStatus): EntryOperation[] {
