@@ -3,11 +3,14 @@
  *
  * Resolution order:
  * 1. Environment variables: OPENAI_API_KEY + OPENAI_BASE_URL + KIVO_LLM_MODEL
- * 2. openclaw.json → models.providers.penguin-main (has chat models)
- * 3. openclaw.json → first provider whose baseUrl contains 'api.penguinsaichat' with chat models
- * 4. openclaw.json → models.providers.openai (fallback)
+ *    (kept for compatibility; api2 image-only endpoint is skipped)
+ * 2. openclaw.json → models.providers["penguin-kivo"] (dedicated KIVO key + gpt-5.5)
  *
- * Default model: claude-opus-4-6
+ * No fallback: if penguin-kivo is unavailable, an explicit error is returned.
+ * KIVO requires its own isolated provider so knowledge extraction/governance
+ * does not contend with the main agent's communication key.
+ *
+ * Default model: gpt-5.5
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -19,8 +22,9 @@ export interface LlmConfig {
   model: string;
 }
 
-const DEFAULT_MODEL = 'claude-opus-4-6';
+const DEFAULT_MODEL = 'gpt-5.5';
 const DEFAULT_BASE_URL = 'https://api.penguinsaichat.dpdns.org/v1';
+const KIVO_PROVIDER_ID = 'penguin-kivo';
 
 /** Ensure baseUrl ends with /v1 (OpenAI-compatible endpoint convention) */
 function normalizeBaseUrl(raw: string): string {
@@ -31,14 +35,27 @@ function normalizeBaseUrl(raw: string): string {
   return url;
 }
 
+interface ProviderModel {
+  id?: string;
+  name?: string;
+}
+
 interface ProviderEntry {
   apiKey?: string;
   baseUrl?: string;
-  models?: string[];
+  models?: Array<ProviderModel | string>;
+}
+
+/** Extract the first model id from a provider's models array (supports object or string entries). */
+function firstModelId(provider: ProviderEntry): string | undefined {
+  const entry = provider.models?.[0];
+  if (!entry) return undefined;
+  if (typeof entry === 'string') return entry;
+  return entry.id;
 }
 
 export function resolveLlmConfig(): LlmConfig | { error: string } {
-  // 1. Environment variables take priority
+  // 1. Environment variables take priority (compatibility)
   const envKey = process.env.OPENAI_API_KEY ?? '';
   const envBase = process.env.OPENAI_BASE_URL ?? '';
   const envModel = process.env.KIVO_LLM_MODEL ?? '';
@@ -53,7 +70,7 @@ export function resolveLlmConfig(): LlmConfig | { error: string } {
         model: envModel || DEFAULT_MODEL,
       };
     }
-    // api2 is image-only, fall through to openclaw.json providers
+    // api2 is image-only, fall through to the penguin-kivo provider
     console.log('[KIVO] Skipping OPENAI_API_KEY (api2 is image-only), checking openclaw.json...');
   }
 
@@ -61,7 +78,7 @@ export function resolveLlmConfig(): LlmConfig | { error: string } {
   const ocPath = resolve(process.env.HOME ?? '/root', '.openclaw', 'openclaw.json');
   if (!existsSync(ocPath)) {
     return {
-      error: 'No API key configured. Set OPENAI_API_KEY environment variable or configure models.providers in openclaw.json. KIVO requires LLM-based extraction — there is no offline fallback.',
+      error: `No API key configured. Set OPENAI_API_KEY environment variable or configure models.providers["${KIVO_PROVIDER_ID}"] in openclaw.json. KIVO requires LLM-based extraction — there is no offline fallback.`,
     };
   }
 
@@ -77,54 +94,25 @@ export function resolveLlmConfig(): LlmConfig | { error: string } {
 
   if (!providers || typeof providers !== 'object') {
     return {
-      error: 'No models.providers found in openclaw.json. Set OPENAI_API_KEY or configure a provider with an apiKey.',
+      error: `No models.providers found in openclaw.json. Configure models.providers["${KIVO_PROVIDER_ID}"] with an apiKey and a gpt-5.5 model.`,
     };
   }
 
-  // 2a. Prefer penguin-main (has chat models)
-  const penguinMain = providers['penguin-main'];
-  if (penguinMain?.apiKey) {
-    const resolvedBase = penguinMain.baseUrl ? normalizeBaseUrl(penguinMain.baseUrl) : DEFAULT_BASE_URL;
-    console.log(`[KIVO] Using provider: penguin-main (baseUrl=${resolvedBase})`);
+  // Priority 0: the dedicated penguin-kivo provider (isolated key + gpt-5.5). No fallback.
+  const kivoProvider = providers[KIVO_PROVIDER_ID];
+  if (!kivoProvider?.apiKey) {
     return {
-      apiKey: penguinMain.apiKey,
-      baseUrl: resolvedBase,
-      model: envModel || DEFAULT_MODEL,
+      error: `Provider "${KIVO_PROVIDER_ID}" not found or missing apiKey in openclaw.json. KIVO requires a dedicated provider — there is no fallback to penguin-main, openai, or any other provider.`,
     };
   }
 
-  // 2b. Find first provider with baseUrl containing 'api.penguinsaichat' (not api2) and chat models
-  for (const [id, provider] of Object.entries(providers)) {
-    if (
-      id !== 'openai' &&
-      provider?.apiKey &&
-      provider.baseUrl &&
-      provider.baseUrl.includes('api.penguinsaichat') &&
-      !provider.baseUrl.includes('api2.penguinsaichat')
-    ) {
-      const resolvedBase = normalizeBaseUrl(provider.baseUrl);
-      console.log(`[KIVO] Using provider: ${id} (baseUrl=${resolvedBase})`);
-      return {
-        apiKey: provider.apiKey,
-        baseUrl: resolvedBase,
-        model: envModel || DEFAULT_MODEL,
-      };
-    }
-  }
-
-  // 2c. Fallback to openai provider
-  const openaiProvider = providers['openai'];
-  if (openaiProvider?.apiKey) {
-    const resolvedBase = openaiProvider.baseUrl ? normalizeBaseUrl(openaiProvider.baseUrl) : DEFAULT_BASE_URL;
-    console.log(`[KIVO] Using provider: openai (baseUrl=${resolvedBase})`);
-    return {
-      apiKey: openaiProvider.apiKey,
-      baseUrl: resolvedBase,
-      model: envModel || DEFAULT_MODEL,
-    };
-  }
+  const resolvedBase = kivoProvider.baseUrl ? normalizeBaseUrl(kivoProvider.baseUrl) : DEFAULT_BASE_URL;
+  const resolvedModel = envModel || firstModelId(kivoProvider) || DEFAULT_MODEL;
+  console.log(`[KIVO] Using provider: ${KIVO_PROVIDER_ID} (baseUrl=${resolvedBase}, model=${resolvedModel})`);
 
   return {
-    error: 'No API key found in any provider in openclaw.json. Set OPENAI_API_KEY or add an apiKey to a provider.',
+    apiKey: kivoProvider.apiKey,
+    baseUrl: resolvedBase,
+    model: resolvedModel,
   };
 }
