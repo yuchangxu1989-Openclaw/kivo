@@ -869,6 +869,7 @@ export async function executeExtractBatchTask(
       entry_fields?: Record<string, unknown>;
     }> = [];
     let maxChunkDurationMs = 0;
+    let failedChunks = 0;
 
     for (let i = 0; i < chunks.length; i++) {
       const globalIdx = startChunkIdx + i;
@@ -910,6 +911,7 @@ export async function executeExtractBatchTask(
         console.warn(
           `[pipeline-worker] LLM batch chunk ${globalIdx + 1}/${totalChunks} failed after ${chunkDurationMs}ms for ${material.file_name}: ${message}`,
         );
+        failedChunks++;
         continue;
       }
 
@@ -935,6 +937,29 @@ export async function executeExtractBatchTask(
           entry_fields: fields,
         });
       }
+    }
+
+    // Atomic batch: if any chunk in this batch failed its LLM extraction, do
+    // NOT advance processed_chunks. Counting failed chunks as "processed" would
+    // let the material reach 'done' with missing knowledge (false success).
+    // Retry the whole batch instead so progress only advances on full success.
+    // Returning before insertion also avoids duplicating entries from the
+    // chunks that did succeed when the batch is re-run.
+    if (failedChunks > 0) {
+      const error = `extract_batch ${payload.batchIndex}: ${failedChunks}/${batchSize} chunk(s) failed LLM extraction; retrying batch without advancing progress`;
+      setTaskWaitingOrFailed(db, task.id, task.retry_count + 1, error);
+      return {
+        taskId: task.id,
+        materialId,
+        success: false,
+        sliceCount: 0,
+        extractCount: 0,
+        wikiPageCount: 0,
+        wikiPageIds: [],
+        error,
+        durationMs: Date.now() - taskStartMs,
+        maxChunkDurationMs,
+      };
     }
 
     const embeddingsByIndex = new Map<number, number[]>();
