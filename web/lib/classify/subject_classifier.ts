@@ -14,8 +14,7 @@
 
 import type Database from 'better-sqlite3';
 import { openWebDb } from '@/lib/db';
-import { embedQuery } from '@/lib/semantic-search';
-import { embedBatch } from '@/lib/embedding-client';
+import { embed, embedBatch } from '@/lib/embedding-client';
 import { chatJson, LlmClientError } from '@/lib/llm/penguin-client';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -74,6 +73,10 @@ const MAX_CONTENT_EXCERPT = 2400;
 const MAX_SUBJECT_TREE_NODES = 30;
 const VECTOR_TOP_K = 10;
 const VECTOR_MIN_SCORE = 0.2;
+const CLASSIFY_LLM_MODEL =
+  process.env.KIVO_CLASSIFY_LLM_MODEL ||
+  process.env.KIVO_LLM_MODEL ||
+  'gpt-5.5';
 
 // ─── Embedding helpers ───────────────────────────────────────────────────────
 
@@ -82,7 +85,8 @@ const VECTOR_MIN_SCORE = 0.2;
  * OpenAI-compatible / local ollama / local BGE service).
  */
 async function embedText(text: string): Promise<number[]> {
-  return embedQuery(text);
+  const result = await embed(text);
+  return result.embedding;
 }
 
 function cosineSimilarity(a: number[], b: ArrayLike<number>): number {
@@ -467,7 +471,7 @@ export async function classify(
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: userPrompt },
         ],
-        { temperature: 0.1, maxTokens: 256 },
+        { model: CLASSIFY_LLM_MODEL, temperature: 0.1, maxTokens: 256 },
       );
       const validated = validateLlmOutput(data);
       if (!validated) {
@@ -504,7 +508,7 @@ export async function classify(
       suggestedPath: llmOutput.subject_path,
       reasoning: llmOutput.reasoning,
       meta: {
-        model: process.env.KIVO_LLM_MODEL || 'claude-opus-4-6',
+        model: CLASSIFY_LLM_MODEL,
         promptVersion: PROMPT_VERSION,
         latencyMs: Date.now() - startMs,
         truncated,
@@ -531,7 +535,7 @@ function makeFailedResult(
     suggestedPath: [],
     reasoning: '',
     meta: {
-      model: process.env.KIVO_LLM_MODEL || 'claude-opus-4-6',
+      model: CLASSIFY_LLM_MODEL,
       promptVersion: PROMPT_VERSION,
       latencyMs: Date.now() - startMs,
       truncated,

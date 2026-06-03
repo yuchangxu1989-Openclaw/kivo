@@ -2,13 +2,12 @@
  * Penguin LLM Client — KIVO Wave 1 / A2
  *
  * Thin wrapper around the OpenAI-compatible chat/completions endpoint
- * served by the penguin-main provider configured in
+ * served by the penguin-kivo provider configured in
  * /root/.openclaw/openclaw.json.
  *
  * 设计要点：
  *  - baseUrl + apiKey 必须从 openclaw.json 读取，禁止硬编码
- *  - 默认模型从 KIVO_LLM_MODEL 环境变量读，缺省 'claude-opus-4-6'
- *    （penguin-main 当前 key 对 claude-haiku-4-5 返回 403，故退回 opus）
+ *  - 默认模型从 KIVO_LLM_MODEL 环境变量读，缺省使用 KIVO provider 的 gpt-5.5
  *  - 调用方传入 schema 提示，LLM 返回 JSON 字符串；客户端做一次容错解析：
  *    1) 直接 JSON.parse
  *    2) 提取 ```json ... ``` fenced block
@@ -19,8 +18,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const DEFAULT_CONFIG_PATH = '/root/.openclaw/openclaw.json';
-const DEFAULT_MODEL = process.env.KIVO_LLM_MODEL || 'claude-opus-4-6';
-const DEFAULT_PROVIDER_ID = process.env.KIVO_LLM_PROVIDER || 'penguin-main';
+const DEFAULT_MODEL = process.env.KIVO_LLM_MODEL || 'gpt-5.5';
+const DEFAULT_PROVIDER_ID = process.env.KIVO_LLM_PROVIDER || 'penguin-kivo';
 const DEFAULT_TIMEOUT_MS = Number(process.env.KIVO_LLM_TIMEOUT_MS || 60_000);
 
 export class LlmClientError extends Error {
@@ -128,6 +127,46 @@ export interface ChatRawResponse {
   usage?: Record<string, unknown>;
 }
 
+function parseOpenAiCompatibleResponse(text: string): any {
+  try {
+    return JSON.parse(text);
+  } catch {
+    /* fallthrough */
+  }
+
+  const chunks = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice('data:'.length).trim())
+    .filter((line) => line && line !== '[DONE]');
+
+  let streamedContent = '';
+  let fullMessageResponse: any = null;
+  for (const chunk of chunks) {
+    try {
+      const parsed = JSON.parse(chunk);
+      const delta = parsed?.choices?.[0]?.delta?.content;
+      if (typeof delta === 'string') {
+        streamedContent += delta;
+        continue;
+      }
+      const messageContent = parsed?.choices?.[0]?.message?.content;
+      if (typeof messageContent === 'string') {
+        fullMessageResponse = parsed;
+      }
+    } catch {
+      /* ignore malformed stream chunk */
+    }
+  }
+  if (streamedContent) {
+    return { choices: [{ message: { content: streamedContent } }] };
+  }
+  if (fullMessageResponse) return fullMessageResponse;
+
+  throw new Error('response is neither JSON nor data-prefixed JSON');
+}
+
 /**
  * 调用 chat/completions，返回助手回复字符串。
  */
@@ -137,7 +176,7 @@ export async function chatComplete(
 ): Promise<ChatRawResponse> {
   const provider = getPenguinProvider();
   const model = opts.model || DEFAULT_MODEL;
-  const url = `${provider.baseUrl}/v1/chat/completions`;
+  const url = `${provider.baseUrl}/v1/chat/completions`.replace('/v1/v1/', '/v1/');
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   const controller = new AbortController();
@@ -183,7 +222,7 @@ export async function chatComplete(
 
   let parsed: any;
   try {
-    parsed = JSON.parse(text);
+    parsed = parseOpenAiCompatibleResponse(text);
   } catch (err) {
     throw new LlmClientError(
       'PARSE_ERROR',

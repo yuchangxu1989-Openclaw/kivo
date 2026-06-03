@@ -18,7 +18,7 @@ import { shortenKnowledgeTitle, generateSummary } from '../extraction/extraction
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { OpenAILLMProvider } from '../extraction/llm-extractor.js';
+import { OpenAILLMProvider, resolveLlmTimeoutMs } from '../extraction/llm-extractor.js';
 import { resolveLlmConfig } from './resolve-llm-config.js';
 import type { KnowledgeEntry, KnowledgeMetadata, KnowledgeSource } from '../types/index.js';
 
@@ -438,7 +438,7 @@ export async function extractIntentsFromBadcases(
     apiKey: llmConfig.apiKey,
     baseUrl: llmConfig.baseUrl,
     model: llmConfig.model,
-    timeoutMs: 120_000,
+    timeoutMs: resolveLlmTimeoutMs(),
   });
 
   const prompt = buildExtractionPrompt(entries);

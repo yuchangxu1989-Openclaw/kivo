@@ -11,7 +11,7 @@
  */
 
 import type Database from 'better-sqlite3';
-import { OpenAILLMProvider } from '../extraction/llm-extractor.js';
+import { OpenAILLMProvider, resolveLlmTimeoutMs } from '../extraction/llm-extractor.js';
 import { resolveLlmConfig } from './resolve-llm-config.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -199,7 +199,7 @@ export async function assessQuality(
     apiKey: llmConfig.apiKey,
     baseUrl: llmConfig.baseUrl,
     model: llmConfig.model,
-    timeoutMs: 120_000,
+    timeoutMs: resolveLlmTimeoutMs(),
   });
 
   const results: QualityAssessment[] = [];
@@ -278,7 +278,7 @@ export async function rewriteEntry(
     apiKey: llmConfig.apiKey,
     baseUrl: llmConfig.baseUrl,
     model: llmConfig.model,
-    timeoutMs: 120_000,
+    timeoutMs: resolveLlmTimeoutMs(),
   });
 
   const prompt = buildRewritePrompt(entry, suggestion);

@@ -31,7 +31,7 @@ function resolveWorkerSrc(): string | null {
   // Resolve the worker absolutely against the actually-installed pdfjs-dist so the
   // fake-worker dynamic import succeeds regardless of cwd.
   try {
-    const require = createRequire(import.meta.url);
+    const require = createRequire(`${process.cwd()}/package.json`);
     const workerPath = require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
     cachedWorkerSrc = pathToFileURL(workerPath).href;
   } catch {

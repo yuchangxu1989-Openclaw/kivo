@@ -19,7 +19,13 @@
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { openWebDb } from '@/lib/db';
-import { executeTask, type TaskRow, type WorkerResult } from '@/lib/queue/worker';
+import {
+  ensureSubjectClassificationSchema,
+  executeTask,
+  type TaskRow,
+  type WorkerResult,
+} from '@/lib/queue/worker';
+import { ensureMaterialsTable } from '@/lib/wiki-materials-store';
 import {
   executePipelineTask,
   executeExtractBatchTask,
@@ -175,7 +181,9 @@ export async function dispatchTick(
   const startMs = Date.now();
 
   const db = openWebDb(false);
+  ensureMaterialsTable(db);
   ensureTaskQueueTable(db);
+  ensureSubjectClassificationSchema(db);
 
   // Also ensure any pending materials without tasks get enqueued
   backfillPendingMaterials(db);
@@ -287,6 +295,12 @@ function pipelineResultToWorkerResult(r: PipelineResult): WorkerResult {
   errorParts.push(
     `pipeline slices=${r.sliceCount} entries=${r.extractCount} wikiPages=${r.wikiPageCount}`,
   );
+  if (typeof r.durationMs === 'number') {
+    errorParts.push(`durationMs=${r.durationMs}`);
+  }
+  if (typeof r.maxChunkDurationMs === 'number') {
+    errorParts.push(`maxChunkDurationMs=${r.maxChunkDurationMs}`);
+  }
   return {
     taskId: r.taskId,
     materialId: r.materialId,

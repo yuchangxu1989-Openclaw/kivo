@@ -13,6 +13,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs/promises';
 import type Database from 'better-sqlite3';
 import { openWebDb } from '@/lib/db';
 import {
@@ -21,7 +22,7 @@ import {
   type ClassifyInput,
   type ClassificationResult,
 } from '@/lib/classify/subject_classifier';
-import { enqueuePipelineTaskForMaterial } from '@/lib/queue/pipeline-worker';
+import { enqueuePipelineTaskForMaterial, parsePdfBytesToText } from '@/lib/queue/pipeline-worker';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -233,6 +234,90 @@ function ensureColumn(
   }
 }
 
+export function ensureSubjectClassificationSchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS entries (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL DEFAULT 'fact',
+      title TEXT NOT NULL DEFAULT '',
+      content TEXT,
+      summary TEXT,
+      source_json TEXT,
+      confidence REAL,
+      status TEXT NOT NULL DEFAULT 'active',
+      tags_json TEXT,
+      domain TEXT,
+      version INTEGER NOT NULL DEFAULT 1,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS subject_nodes (
+      id TEXT PRIMARY KEY,
+      parent_id TEXT,
+      name TEXT NOT NULL,
+      tree_kind TEXT NOT NULL DEFAULT 'subject',
+      origin TEXT NOT NULL DEFAULT 'auto',
+      created_by_material_id TEXT,
+      created_at INTEGER NOT NULL,
+      confidence REAL,
+      aliases TEXT,
+      merged_into TEXT,
+      level INTEGER NOT NULL DEFAULT 0,
+      status TEXT DEFAULT 'active',
+      deletable INTEGER NOT NULL DEFAULT 1,
+      wiki_directory_id TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_subject_nodes_parent
+      ON subject_nodes(parent_id);
+    CREATE INDEX IF NOT EXISTS idx_subject_nodes_name
+      ON subject_nodes(name);
+
+    CREATE TABLE IF NOT EXISTS subject_aliases (
+      id TEXT PRIMARY KEY,
+      subject_id TEXT NOT NULL,
+      alias_name TEXT NOT NULL,
+      alias_kind TEXT NOT NULL DEFAULT 'manual',
+      created_at INTEGER NOT NULL,
+      alias_embedding BLOB,
+      UNIQUE(subject_id, alias_name)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_subject_aliases_subject_id
+      ON subject_aliases(subject_id);
+  `);
+
+  ensureColumn(db, 'entries', 'subject_id', 'TEXT');
+  ensureColumn(db, 'entries', 'entry_type', 'TEXT');
+  ensureColumn(db, 'materials', 'classification_reason', 'TEXT');
+}
+
+async function readMaterialContentExcerpt(material: {
+  asset_kind: string | null;
+  mime_type?: string | null;
+  storage_path: string | null;
+}): Promise<string> {
+  if (!material.storage_path) return '';
+  const kind = (material.asset_kind || '').toLowerCase();
+  const mime = (material.mime_type || '').toLowerCase();
+  try {
+    if (kind === 'pdf' || mime === 'application/pdf') {
+      const buffer = await fs.readFile(material.storage_path);
+      const text = await parsePdfBytesToText(new Uint8Array(buffer));
+      return text.slice(0, 3000);
+    }
+    if (kind === 'text' || mime.startsWith('text/')) {
+      const text = await fs.readFile(material.storage_path, 'utf-8');
+      return text.slice(0, 3000);
+    }
+  } catch {
+    return '';
+  }
+  return '';
+}
+
 // ─── Worker main ─────────────────────────────────────────────────────────────
 
 /**
@@ -250,6 +335,7 @@ export async function executeTask(task: TaskRow): Promise<WorkerResult> {
   const db = openWebDb(false);
 
   try {
+    ensureSubjectClassificationSchema(db);
     // Parse payload
     let payload: { materialId: string; content?: string };
     try {
@@ -281,13 +367,14 @@ export async function executeTask(task: TaskRow): Promise<WorkerResult> {
     // Get material content for classification
     const materialRow = db
       .prepare(
-        `SELECT id, file_name, asset_kind, source_ref, source_channel, storage_path
+        `SELECT id, file_name, mime_type, asset_kind, source_ref, source_channel, storage_path
            FROM materials WHERE id = ?`,
       )
       .get(materialId) as
       | {
           id: string;
           file_name: string;
+          mime_type: string | null;
           asset_kind: string | null;
           source_ref: string | null;
           source_channel: string | null;
@@ -312,6 +399,7 @@ export async function executeTask(task: TaskRow): Promise<WorkerResult> {
     // Build content for classification: use title + asset_kind + source info
     // In a full implementation, we'd read the actual file content. For Wave 1,
     // we use the available metadata as the classification input.
+    const materialExcerpt = await readMaterialContentExcerpt(materialRow);
     const contentParts = [
       materialRow.file_name || '',
       materialRow.asset_kind ? `类型: ${materialRow.asset_kind}` : '',
@@ -320,6 +408,7 @@ export async function executeTask(task: TaskRow): Promise<WorkerResult> {
         ? `渠道: ${materialRow.source_channel}`
         : '',
       payload.content || '',
+      materialExcerpt ? `正文摘录:\n${materialExcerpt}` : '',
     ].filter(Boolean);
 
     const classifyInput: ClassifyInput = {

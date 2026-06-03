@@ -7,6 +7,7 @@
 
 import type { KnowledgeSource } from '../types/index.js';
 import JSZip from 'jszip';
+import { createRequire } from 'node:module';
 
 export interface ParsedSection {
   title: string;
@@ -41,9 +42,8 @@ export async function parsePdf(bytes: Uint8Array): Promise<string> {
   const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs');
   // Resolve pdf.worker.mjs absolutely so bundlers (Next.js) and arbitrary CWDs both work.
   try {
-    const { createRequire } = await import('node:module');
     const { pathToFileURL } = await import('node:url');
-    const req = createRequire(import.meta.url);
+    const req = createRequire(`${process.cwd()}/package.json`);
     const workerPath = req.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
     if (pdfjs?.GlobalWorkerOptions) {
       pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;

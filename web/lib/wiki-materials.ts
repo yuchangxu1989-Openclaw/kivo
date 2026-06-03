@@ -68,7 +68,10 @@ export function buildStoredMaterialPath(materialId: string, fileName: string) {
   return path.join(getMaterialsStorageRoot(), `${materialId}-${safeName}`);
 }
 
-const UPLOAD_LLM_MODEL = process.env.KIVO_UPLOAD_LLM_MODEL || 'claude-opus-4-7';
+const UPLOAD_LLM_MODEL =
+  process.env.KIVO_UPLOAD_LLM_MODEL ||
+  process.env.KIVO_LLM_MODEL ||
+  'gpt-5.5';
 
 /**
  * Real LLM adapter for the upload pipeline.

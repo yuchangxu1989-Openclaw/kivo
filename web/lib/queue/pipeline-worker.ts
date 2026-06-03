@@ -24,6 +24,7 @@ import { openWebDb } from '@/lib/db';
 import { ensureMaterialsTable } from '@/lib/wiki-materials-store';
 import { getWikiRepository } from '@/lib/wiki-engine';
 import { chatJson, LlmClientError } from '@/lib/llm/penguin-client';
+import { embedBatch } from '@/lib/embedding-client';
 import { queueSubjectGraphWriteForEntryIds } from '@kivo/graph/subject-graph-writer';
 
 export const TASK_TYPE_PIPELINE = 'process_pipeline';
@@ -33,13 +34,15 @@ export const CHUNK_TARGET_CHARS = Number(
   process.env.KIVO_PIPELINE_CHUNK_CHARS || 2400,
 );
 export const BATCH_SIZE = Number(
-  process.env.KIVO_PIPELINE_BATCH_SIZE || 10,
+  process.env.KIVO_PIPELINE_BATCH_SIZE || 1,
 );
 export const PIPELINE_LLM_TIMEOUT_MS = Number(
-  process.env.KIVO_PIPELINE_LLM_TIMEOUT_MS || 90_000,
+  process.env.KIVO_PIPELINE_LLM_TIMEOUT_MS || 300_000,
 );
 export const PIPELINE_LLM_MODEL =
-  process.env.KIVO_PIPELINE_LLM_MODEL || 'claude-opus-4-7';
+  process.env.KIVO_PIPELINE_LLM_MODEL ||
+  process.env.KIVO_LLM_MODEL ||
+  'gpt-5.5';
 
 /**
  * Inline task_queue bootstrap to avoid circular import with dispatcher.ts.
@@ -63,6 +66,37 @@ function ensureTaskQueueTableLocal(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_task_queue_created
       ON task_queue(created_at);
   `);
+}
+
+function ensureColumn(db: Database.Database, table: string, column: string, type: string): void {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!rows.some((row) => row.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
+}
+
+function ensurePipelineExtractionSchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS entries (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL DEFAULT 'fact',
+      title TEXT NOT NULL DEFAULT '',
+      content TEXT,
+      summary TEXT,
+      source_json TEXT,
+      confidence REAL,
+      status TEXT NOT NULL DEFAULT 'active',
+      tags_json TEXT,
+      domain TEXT,
+      version INTEGER NOT NULL DEFAULT 1,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+  ensureColumn(db, 'entries', 'subject_id', 'TEXT');
+  ensureColumn(db, 'entries', 'entry_type', 'TEXT');
+  ensureColumn(db, 'entries', 'embedding', 'BLOB');
 }
 
 interface PipelineTaskRow {
@@ -95,6 +129,8 @@ export interface PipelineResult {
   extractCount: number;
   wikiPageCount: number;
   wikiPageIds: string[];
+  durationMs?: number;
+  maxChunkDurationMs?: number;
   error?: string;
   skipped?: boolean;
   reason?: string;
@@ -263,7 +299,7 @@ async function loadPdfBytes(storagePath: string): Promise<Uint8Array> {
   return new Uint8Array(buf);
 }
 
-async function parsePdfBytesToText(bytes: Uint8Array): Promise<string> {
+export async function parsePdfBytesToText(bytes: Uint8Array): Promise<string> {
   const mod: any = await import('pdfjs-dist/legacy/build/pdf.mjs');
   // Resolve pdf.worker.mjs absolutely via require.resolve so it works regardless
   // of process.cwd(). The previous cwd-based path broke when this code ran from
@@ -425,6 +461,7 @@ function insertEntry(
     pageNumber: number | null;
     sourceFile: string;
     raw: LlmExtractedEntry;
+    embedding?: number[] | null;
   },
 ): { id: string; entryType: EntryTypeValue } | null {
   const content = (args.raw.content ?? '').toString().trim();
@@ -462,10 +499,10 @@ function insertEntry(
   db.prepare(
     `INSERT INTO entries (
        id, type, title, content, summary, source_json, status, tags_json,
-       version, metadata_json, subject_id, entry_type, created_at, updated_at, confidence
+       version, metadata_json, subject_id, entry_type, embedding, created_at, updated_at, confidence
      ) VALUES (
        @id, @type, @title, @content, @summary, @source, 'active', @tags,
-       1, @meta, @subject, @entryType, @now, @now, 0.7
+       1, @meta, @subject, @entryType, @embedding, @now, @now, 0.7
      )`,
   ).run({
     id,
@@ -478,6 +515,7 @@ function insertEntry(
     meta: JSON.stringify(metadata),
     subject: args.subjectId,
     entryType,
+    embedding: args.embedding ? Buffer.from(new Float32Array(args.embedding).buffer) : null,
     now,
   });
   return { id, entryType };
@@ -523,6 +561,7 @@ export async function executePipelineTask(
 ): Promise<PipelineResult> {
   const db = openWebDb(false);
   ensureMaterialsTable(db);
+  ensurePipelineExtractionSchema(db);
   ensureTaskQueueTableLocal(db);
 
   let materialId = '';
@@ -581,8 +620,11 @@ export async function executePipelineTask(
 
     const contentOverride = material.content_override?.trim() ?? '';
 
-    if (!contentOverride && (material.asset_kind || '').toLowerCase() !== 'pdf') {
-      const reason = `asset_kind=${material.asset_kind} not supported in this pipeline batch (PDF only)`;
+    const isPdfMaterial =
+      (material.asset_kind || '').toLowerCase() === 'pdf' ||
+      (material.mime_type || '').toLowerCase() === 'application/pdf';
+    if (!contentOverride && !isPdfMaterial) {
+      const reason = `asset_kind=${material.asset_kind} mime_type=${material.mime_type} not supported in this pipeline batch (PDF only)`;
       db.prepare(
         `UPDATE materials
             SET pipeline_status = 'pending',
@@ -763,8 +805,10 @@ export async function executePipelineTask(
 export async function executeExtractBatchTask(
   task: PipelineTaskRow,
 ): Promise<PipelineResult> {
+  const taskStartMs = Date.now();
   const db = openWebDb(false);
   ensureMaterialsTable(db);
+  ensurePipelineExtractionSchema(db);
   ensureTaskQueueTableLocal(db);
 
   let materialId = '';
@@ -824,9 +868,11 @@ export async function executeExtractBatchTask(
       entry_type?: string;
       entry_fields?: Record<string, unknown>;
     }> = [];
+    let maxChunkDurationMs = 0;
 
     for (let i = 0; i < chunks.length; i++) {
       const globalIdx = startChunkIdx + i;
+      const chunkStartMs = Date.now();
       const { system, user } = buildExtractPrompt({
         fileName: material.file_name,
         subjectName: material.suggested_subject_name,
@@ -849,13 +895,20 @@ export async function executeExtractBatchTask(
           },
         );
         raw = data;
+        const chunkDurationMs = Date.now() - chunkStartMs;
+        maxChunkDurationMs = Math.max(maxChunkDurationMs, chunkDurationMs);
+        console.log(
+          `[pipeline-worker] extract chunk ${globalIdx + 1}/${totalChunks} completed in ${chunkDurationMs}ms for ${material.file_name}`,
+        );
       } catch (err) {
+        const chunkDurationMs = Date.now() - chunkStartMs;
+        maxChunkDurationMs = Math.max(maxChunkDurationMs, chunkDurationMs);
         const message =
           err instanceof LlmClientError
             ? `[${err.code}] ${err.message}`
             : (err as Error).message;
         console.warn(
-          `[pipeline-worker] LLM batch chunk ${globalIdx + 1}/${totalChunks} failed for ${material.file_name}: ${message}`,
+          `[pipeline-worker] LLM batch chunk ${globalIdx + 1}/${totalChunks} failed after ${chunkDurationMs}ms for ${material.file_name}: ${message}`,
         );
         continue;
       }
@@ -884,17 +937,38 @@ export async function executeExtractBatchTask(
       }
     }
 
+    const embeddingsByIndex = new Map<number, number[]>();
+    if (collected.length > 0) {
+      try {
+        const texts = collected.map((item) => `${item.title}\n${item.content}`);
+        const { embeddings } = await embedBatch(texts);
+        embeddings.forEach((embedding, index) => {
+          if (Array.isArray(embedding) && embedding.length > 0) {
+            embeddingsByIndex.set(index, embedding);
+          }
+        });
+      } catch (err) {
+        console.warn(
+          `[pipeline-worker] embedding batch failed for ${material.file_name}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
     // Insert extracted entries
     let extractCount = 0;
     const insertedEntryIds: string[] = [];
     const insertTxn = db.transaction(() => {
-      for (const item of collected) {
+      for (let index = 0; index < collected.length; index++) {
+        const item = collected[index];
         const inserted = insertEntry(db, {
           materialId,
           subjectId: material.subject_node_id,
           pageNumber: null,
           sourceFile: material.file_name,
           raw: item,
+          embedding: embeddingsByIndex.get(index) ?? null,
         });
         if (inserted) {
           extractCount++;
@@ -1049,6 +1123,8 @@ export async function executeExtractBatchTask(
         extractCount: totalExtractCount,
         wikiPageCount: wikiPageIds.length,
         wikiPageIds,
+        durationMs: Date.now() - taskStartMs,
+        maxChunkDurationMs,
       };
     }
 
@@ -1062,6 +1138,8 @@ export async function executeExtractBatchTask(
       extractCount,
       wikiPageCount: 0,
       wikiPageIds: [],
+      durationMs: Date.now() - taskStartMs,
+      maxChunkDurationMs,
     };
   } catch (err) {
     const error = `extract_batch uncaught: ${(err as Error).message}`;

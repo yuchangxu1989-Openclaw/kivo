@@ -235,7 +235,9 @@ export class WikiRepository {
       ts,
       ts,
     );
-    return this.getRequiredById(id, 'wiki_page');
+    const page = this.getRequiredById(id, 'wiki_page');
+    this.savePageVersionSnapshot(page, ts);
+    return page;
   }
 
   updatePage(id: string, input: UpdatePageInput): WikiEntryRecord {

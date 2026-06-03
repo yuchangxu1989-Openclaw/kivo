@@ -10,7 +10,7 @@
 
 import type { KnowledgeEntry } from '../types/index.js';
 import type { KnowledgeRepository } from '../repository/index.js';
-import { OpenAILLMProvider } from '../extraction/llm-extractor.js';
+import { OpenAILLMProvider, resolveLlmTimeoutMs } from '../extraction/llm-extractor.js';
 import { resolveLlmConfig } from '../cli/resolve-llm-config.js';
 import { BgeEmbedder } from '../extraction/bge-embedder.js';
 import { cosineSimilarity } from '../utils/math.js';
@@ -221,7 +221,7 @@ export class FragmentAggregator {
       apiKey: llmConfig.apiKey,
       baseUrl: llmConfig.baseUrl,
       model: llmConfig.model,
-      timeoutMs: 120_000,
+      timeoutMs: resolveLlmTimeoutMs(),
     });
 
     const prompt = buildMergePrompt(group);

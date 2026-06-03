@@ -15,7 +15,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { DEFAULT_CONFIG } from '../config/types.js';
 import { resolveLlmConfig } from './resolve-llm-config.js';
-import { OpenAILLMProvider } from '../extraction/llm-extractor.js';
+import { OpenAILLMProvider, resolveLlmTimeoutMs } from '../extraction/llm-extractor.js';
 import { BgeEmbedder } from '../extraction/bge-embedder.js';
 import { KnowledgeRepository, SQLiteProvider } from '../repository/index.js';
 import { buildBehavioralChangeTestSection, loadDedupThreshold } from '../standards/index.js';
@@ -206,7 +206,7 @@ export async function extractMemoryKnowledge(
     apiKey: llmConfig.apiKey,
     baseUrl: llmConfig.baseUrl,
     model: llmConfig.model,
-    timeoutMs: 120_000,
+    timeoutMs: resolveLlmTimeoutMs(),
   });
 
   // Setup DB

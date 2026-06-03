@@ -13,7 +13,7 @@ import { resolve, join } from 'node:path';
 import Database from 'better-sqlite3';
 import { DEFAULT_CONFIG } from '../config/types.js';
 import { resolveLlmConfig } from './resolve-llm-config.js';
-import { OpenAILLMProvider } from '../extraction/llm-extractor.js';
+import { OpenAILLMProvider, resolveLlmTimeoutMs } from '../extraction/llm-extractor.js';
 import { KnowledgeRepository, SQLiteProvider } from '../repository/index.js';
 import { buildBehavioralChangeTestSection, buildKnowledgeAdmissionBoundarySection } from '../standards/index.js';
 import { aggregateKnowledgeMaterials, normalizeAggregatedItem, type KnowledgeMaterial } from './session-knowledge-aggregator.js';
@@ -431,7 +431,7 @@ export async function extractSessionKnowledge(
     apiKey: llmConfig.apiKey,
     baseUrl: llmConfig.baseUrl,
     model: llmConfig.model,
-    timeoutMs: 120_000,
+    timeoutMs: resolveLlmTimeoutMs(),
   });
 
   // Filter clusters

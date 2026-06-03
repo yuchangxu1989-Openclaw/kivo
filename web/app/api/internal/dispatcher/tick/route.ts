@@ -14,10 +14,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dispatchTick } from '@/lib/queue/dispatcher';
 
-const INTERNAL_TOKEN = process.env.KIVO_INTERNAL_TOKEN || '';
-
 function validateToken(req: NextRequest): boolean {
-  if (!INTERNAL_TOKEN) {
+  const internalToken = process.env.KIVO_INTERNAL_TOKEN || '';
+  if (!internalToken) {
     // If no token configured, reject all requests (secure by default)
     return false;
   }
@@ -27,13 +26,13 @@ function validateToken(req: NextRequest): boolean {
   if (authHeader) {
     const parts = authHeader.split(' ');
     if (parts.length === 2 && parts[0].toLowerCase() === 'bearer') {
-      if (parts[1] === INTERNAL_TOKEN) return true;
+      if (parts[1] === internalToken) return true;
     }
   }
 
   // Check X-Internal-Token header
   const internalHeader = req.headers.get('x-internal-token');
-  if (internalHeader === INTERNAL_TOKEN) return true;
+  if (internalHeader === internalToken) return true;
 
   return false;
 }

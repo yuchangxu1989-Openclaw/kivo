@@ -16,6 +16,7 @@ import {
   TASK_TYPE_CLASSIFY,
 } from '@/lib/queue/dispatcher';
 import { MAX_RETRIES } from '@/lib/queue/worker';
+import { BATCH_SIZE, PIPELINE_LLM_TIMEOUT_MS } from '@/lib/queue/pipeline-worker';
 
 // Mock the DB module to use in-memory database
 let testDb: Database.Database;
@@ -141,6 +142,14 @@ describe('Dispatcher', () => {
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='task_queue'")
       .all();
     expect(tables).toHaveLength(1);
+  });
+
+  it('uses one PDF chunk per extract_batch task by default', () => {
+    expect(BATCH_SIZE).toBe(1);
+  });
+
+  it('allows slow extract_batch LLM calls up to 300 seconds by default', () => {
+    expect(PIPELINE_LLM_TIMEOUT_MS).toBe(300_000);
   });
 
   it('enqueueClassifyTask creates a task for a material', () => {

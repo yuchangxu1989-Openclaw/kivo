@@ -17,7 +17,7 @@ import { randomUUID } from 'node:crypto';
 import { cosineSimilarity } from '../utils/math.js';
 import { DEFAULT_CONFIG } from '../config/types.js';
 import { resolveLlmConfig } from './resolve-llm-config.js';
-import { OpenAILLMProvider } from '../extraction/llm-extractor.js';
+import { OpenAILLMProvider, resolveLlmTimeoutMs } from '../extraction/llm-extractor.js';
 import { loadDedupThreshold } from '../standards/index.js';
 import type { DomainGoal } from '../domain-goal/domain-goal-types.js';
 import { FragmentAggregator, type AggregationReport } from '../governance/fragment-aggregator.js';
@@ -402,7 +402,7 @@ export async function runCoverageAudit(
     apiKey: llmConfig.apiKey,
     baseUrl: llmConfig.baseUrl,
     model: llmConfig.model,
-    timeoutMs: 120_000,
+    timeoutMs: resolveLlmTimeoutMs(),
   });
 
   // Build a summary of existing knowledge

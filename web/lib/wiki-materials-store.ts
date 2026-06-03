@@ -199,8 +199,9 @@ export class WikiMaterialsStore {
     this.db.prepare(`
       INSERT INTO materials (
         id, file_name, mime_type, file_size, status, space_id, wiki_page_count,
-        created_at, updated_at, storage_path, wiki_page_ids_json, error_message, route_category, route_params_json
-      ) VALUES (?, ?, ?, ?, 'processing', ?, 0, ?, ?, ?, '[]', NULL, ?, ?)
+        created_at, updated_at, storage_path, wiki_page_ids_json, error_message,
+        asset_kind, route_category, route_params_json, pipeline_status
+      ) VALUES (?, ?, ?, ?, 'processing', ?, 0, ?, ?, ?, '[]', NULL, ?, ?, ?, 'pending')
     `).run(
       id,
       input.fileName,
@@ -210,6 +211,7 @@ export class WikiMaterialsStore {
       now,
       now,
       input.storagePath,
+      input.routeCategory ?? null,
       input.routeCategory ?? null,
       input.routeParams ? JSON.stringify(input.routeParams) : null,
     );

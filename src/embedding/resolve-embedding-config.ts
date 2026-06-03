@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { EmbeddingBackendConfig } from '../config/types.js';
 
-const ARK_COMPAT_BASE_URL = 'http://localhost:9876';
+const ARK_COMPAT_BASE_URL = 'http://localhost:9876/v1';
 const ARK_MODEL = 'doubao-embedding-vision-251215';
 const ARK_DIMENSIONS = 2048;
 

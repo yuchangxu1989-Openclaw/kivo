@@ -11,7 +11,7 @@
  */
 
 import type { KnowledgeEntry } from '../types/index.js';
-import { OpenAILLMProvider } from './llm-extractor.js';
+import { OpenAILLMProvider, resolveLlmTimeoutMs } from './llm-extractor.js';
 import { resolveLlmConfig } from '../cli/resolve-llm-config.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -138,7 +138,7 @@ export async function runPostExtractAudit(
     apiKey: llmConfig.apiKey,
     baseUrl: llmConfig.baseUrl,
     model: llmConfig.model,
-    timeoutMs: 120_000,
+    timeoutMs: resolveLlmTimeoutMs(),
   });
 
   const results: AuditResult[] = [];

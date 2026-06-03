@@ -16,8 +16,17 @@ export interface OpenAILLMProviderOptions {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
-  /** Request timeout in milliseconds (default 60_000) */
+  /** Request timeout in milliseconds (default 300_000) */
   timeoutMs?: number;
+}
+
+export const DEFAULT_LLM_TIMEOUT_MS = 300_000;
+const KIVO_LLM_TIMEOUT_ENV_KEY = 'KIVO_LLM_TIMEOUT_MS';
+
+export function resolveLlmTimeoutMs(): number {
+  const raw = process.env[KIVO_LLM_TIMEOUT_ENV_KEY];
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_LLM_TIMEOUT_MS;
 }
 
 export class OpenAILLMProvider implements LLMProvider {
@@ -30,7 +39,7 @@ export class OpenAILLMProvider implements LLMProvider {
     this.apiKey = options.apiKey ?? process.env.OPENAI_API_KEY ?? '';
     this.baseUrl = (options.baseUrl ?? process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1').replace(/\/+$/, '');
     this.model = options.model ?? process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
-    this.timeoutMs = options.timeoutMs ?? 60_000;
+    this.timeoutMs = options.timeoutMs ?? resolveLlmTimeoutMs();
   }
 
   /** Check whether an API key is available. */
