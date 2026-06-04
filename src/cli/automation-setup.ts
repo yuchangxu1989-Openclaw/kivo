@@ -4,13 +4,19 @@ import { resolve } from 'node:path';
 
 const CRON_BLOCK_BEGIN = '# >>> KIVO automation >>>';
 const CRON_BLOCK_END = '# <<< KIVO automation <<<' ;
-const OPENCLAW_CONFIG_PATH = '/root/.openclaw/openclaw.json';
-const OPENCLAW_KIVO_PROJECT_DIR = '/root/.openclaw/workspace/projects/kivo';
 const DEFAULT_GOVERNANCE_SCHEDULE = '0 4 * * *';
-const OPENCLAW_GOVERNANCE_COMMAND = `cd ${OPENCLAW_KIVO_PROJECT_DIR} && npx kivo governance run --auto 2>&1 >> /tmp/kivo-governance.log`;
-const OPENCLAW_GOVERNANCE_CRON = `${DEFAULT_GOVERNANCE_SCHEDULE} ${OPENCLAW_GOVERNANCE_COMMAND}`;
 const STANDALONE_GOVERNANCE_CRON = `${DEFAULT_GOVERNANCE_SCHEDULE} npx kivo governance run --auto`;
 const DEFAULT_WATCH_INTERVAL_MS = 15_000;
+
+function getOpenClawConfigPath(): string {
+  if (process.env.OPENCLAW_CONFIG) {
+    return process.env.OPENCLAW_CONFIG;
+  }
+  if (process.env.OPENCLAW_HOME) {
+    return resolve(process.env.OPENCLAW_HOME, 'openclaw.json');
+  }
+  return resolve(process.env.HOME || process.env.USERPROFILE || '.', '.openclaw', 'openclaw.json');
+}
 
 export interface AutomationCommands {
   governanceCommand: string;
@@ -32,16 +38,20 @@ function shellQuote(value: string): string {
 }
 
 export function isOpenClawHost(): boolean {
-  return existsSync(OPENCLAW_CONFIG_PATH);
+  return existsSync(getOpenClawConfigPath());
 }
 
 export function getDefaultBadcaseWatchDir(cwd: string = process.cwd()): string {
+  const openclawWorkspace = process.env.OPENCLAW_WORKSPACE;
+  if (openclawWorkspace) {
+    return resolve(openclawWorkspace, 'logs');
+  }
   const openclawHome = process.env.OPENCLAW_HOME;
   if (openclawHome) {
     return resolve(openclawHome, 'workspace', 'logs');
   }
   if (isOpenClawHost()) {
-    return '/root/.openclaw/workspace/logs';
+    return resolve(process.env.HOME || process.env.USERPROFILE || '.', '.openclaw', 'workspace', 'logs');
   }
   return resolve(cwd, 'logs');
 }
@@ -59,9 +69,7 @@ export function buildAutomationCommands(cwd: string = process.cwd()): Automation
 
   const governanceCommand = 'kivo governance run --auto';
   const watcherCommand = `kivo watch-badcases --dir ${shellQuote(watchDir)}`;
-  const governanceCron = isOpenClawHost()
-    ? OPENCLAW_GOVERNANCE_CRON
-    : `${DEFAULT_GOVERNANCE_SCHEDULE} cd ${shellQuote(dir)} && npx kivo governance run --auto >> ${shellQuote(resolve(logDir, 'governance.log'))} 2>&1`;
+  const governanceCron = `${DEFAULT_GOVERNANCE_SCHEDULE} cd ${shellQuote(dir)} && npx kivo governance run --auto >> ${shellQuote(resolve(logDir, 'governance.log'))} 2>&1`;
 
   const cronLines = [
     governanceCron,
@@ -106,11 +114,11 @@ export function installAutomationCrontab(cwd: string = process.cwd()): CrontabIn
   }
 
   const existing = current.status === 0 ? current.stdout.trim() : '';
-  if (existing.includes(OPENCLAW_GOVERNANCE_COMMAND)) {
+  if (existing.includes(CRON_BLOCK_BEGIN) && existing.includes(CRON_BLOCK_END)) {
     return {
       attempted: true,
       installed: false,
-      message: '已存在 KIVO governance cron，跳过重复注册。',
+      message: '已存在 KIVO automation cron，跳过重复注册。',
     };
   }
 

@@ -120,20 +120,19 @@ KIVO 不只回忆已知内容。
 这一步很关键。
 系统开始从“记住东西”往“推动知识演化”走。
 
-### 6. 供应商中立，可本地降级
+### 6. Provider-neutral，但不静默降级
 
-KIVO 的 embedding provider 支持多种后端：
+KIVO 复用宿主已有 provider 配置，不要求用户在 KIVO 里再维护一份密钥。
 
-- Ollama
-- OpenAI-compatible endpoint
-- `local` fallback
-
-无外部 embedding 服务时，可以退到本地 provider。
-个人环境能跑，团队环境也能接现有基础设施。
+- LLM provider：用于入库 quality gate、提取、治理和价值判断
+- Embedding provider：用于 `query` 语义检索和 `embed-backfill`
+- 未检测到 provider 时，CLI 会明确报错并指向 Prerequisites，不做关键词 fallback 冒充可用
 
 相关实现：
 
+- `src/cli/resolve-llm-config.ts`
 - `src/embedding/create-provider.ts`
+
 
 ## 一张图看懂 KIVO
 
@@ -171,8 +170,62 @@ Sessions / Docs / Corrections
 - 让知识盲区浮出水面，推动补盲，减少原地重复
 - 让部署保持灵活，本地和团队环境都能落地
 
-## Quick Start
+## Prerequisites
 
+KIVO 的 CLI 依赖模型 provider。没有配置时不会静默写入或返回空结果；命令会提示“需要配置 LLM provider”或“需要配置 embedding provider”，并让你回到本节完成配置。
+
+### LLM provider（`kivo add` / ingest / governance 必需）
+
+KIVO 共享 OpenClaw 的 `openclaw.json` provider 配置，不需要重复配置一份 KIVO 专用密钥。在 OpenClaw 环境中，确保存在：
+
+```json
+{
+  "models": {
+    "providers": {
+      "penguin-kivo": {
+        "apiKey": "...",
+        "baseUrl": "https://.../v1",
+        "models": [{ "id": "gpt-5.5" }]
+      }
+    }
+  }
+}
+```
+
+非 OpenClaw 环境可临时使用环境变量：
+
+```bash
+export OPENAI_API_KEY=...
+export OPENAI_BASE_URL=https://your-openai-compatible-endpoint/v1
+export KIVO_LLM_MODEL=gpt-5.5
+```
+
+### Embedding provider（`kivo query` 必需）
+
+推荐本地 Ollama：
+
+```bash
+ollama serve
+ollama pull bge-m3:latest
+npx kivo init --yes
+npx kivo embed-backfill
+```
+
+也可以在 `kivo.config.json` 配置 OpenAI-compatible embedding：
+
+```json
+{
+  "embedding": {
+    "provider": "openai-compatible",
+    "baseUrl": "https://your-embedding-endpoint/v1",
+    "model": "your-embedding-model",
+    "apiKey": "...",
+    "dimensions": 1536
+  }
+}
+```
+
+## Quick Start
 ### 1. 安装
 
 ```bash
@@ -192,10 +245,11 @@ npx kivo add fact "TypeScript decorators in 5.0" \
   --content "TypeScript 5.0 adds support for the Stage 3 decorators proposal." \
   --tags "typescript,decorators"
 
+npx kivo embed-backfill
 npx kivo query "How do decorators work in TypeScript?"
 ```
 
-初始化后，KIVO 会创建本地知识存储，安装工作区所需 hook，并启用 Agent 会话可调用的检索链路。
+初始化后，KIVO 会创建本地知识存储。OpenClaw 宿主环境会安装工作区 hook；非 OpenClaw 环境会跳过 hook 安装并只保留本地 CLI 使用路径。
 
 ## 适合什么场景
 
@@ -208,7 +262,7 @@ npx kivo query "How do decorators work in TypeScript?"
 ## 项目状态
 
 KIVO 当前是 early-stage open source runtime layer。
-代码里已经有注入链、图谱关系、盲区分析、调研任务建议和本地降级路径。
+代码里已经有注入链、图谱关系、盲区分析、调研任务建议和 provider 配置检查。
 如果你在找一层能真正管住 Agent 上下文质量的基础设施，KIVO 值得看源码。
 
 ## Contributing

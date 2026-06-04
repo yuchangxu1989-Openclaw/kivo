@@ -225,9 +225,10 @@ export class SQLiteProvider implements StorageProvider {
   async save(entry: KnowledgeEntry, options?: SaveOptions): Promise<boolean> {
     const bypassInTests = shouldBypassExternalModelsInTests();
 
-    // FR-N05: Hard confidence gate — reject entries below 0.7
+    // FR-N05: Hard confidence gate — reject entries below 0.7 unless the caller
+    // explicitly bypasses all admission gates for migration/debug use.
     const CONFIDENCE_THRESHOLD = 0.7;
-    if (!bypassInTests && entry.confidence < CONFIDENCE_THRESHOLD) {
+    if (!options?.skipQualityGate && !bypassInTests && entry.confidence < CONFIDENCE_THRESHOLD) {
       console.warn(
         `[KIVO] Rejected entry "${entry.title}" — confidence ${entry.confidence} below threshold ${CONFIDENCE_THRESHOLD}`
       );

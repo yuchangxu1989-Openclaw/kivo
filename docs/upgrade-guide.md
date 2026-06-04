@@ -54,13 +54,9 @@ kivo migrate down
 
 **无 Schema 变更**，直接升级。
 
-新增功能：Web 工作台（Next.js）
+新增功能：Web 工作台（源码仓库中的 `web/` 应用）。
 
-```bash
-# 启动 Web 工作台
-cd node_modules/@self-evolving-harness/kivo/web
-npm install && npm run dev
-```
+发布到 npm 的 CLI 包不提供 `kivo web` 命令，也不包含 `node_modules/@self-evolving-harness/kivo/web` 源码目录。需要本地 Web 工作台时，请从 KIVO 源码仓库启动 `web/` 应用；npm 包用于 CLI 和库导入。
 
 ## 从 0.6.x 升级到 0.7.x
 

@@ -20,10 +20,9 @@ npm install @self-evolving-harness/kivo
 kivo init --yes
 ```
 
-生成 `kivo.config.json`，默认配置：
-- 数据库：`./kivo.db`（SQLite）
-- 模式：`standalone`
-- 冲突阈值：`0.85`
+生成 `kivo.config.json` 和本地 SQLite 数据库。`kivo add` 需要 LLM provider；`kivo query` 需要 embedding provider 并先运行 `kivo embed-backfill`。
+
+KIVO 共享 OpenClaw 的 `openclaw.json` provider 配置；非 OpenClaw 环境可用 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`KIVO_LLM_MODEL` 临时提供 LLM 配置。
 
 ## 添加知识
 
@@ -31,11 +30,12 @@ kivo init --yes
 kivo add fact "TypeScript 类型系统" --content "TypeScript 通过静态类型检查提升代码质量" --tags "typescript,类型"
 ```
 
-支持的知识类型：`fact` / `concept` / `rule` / `procedure` / `heuristic` / `reference`
+支持的知识类型：`fact` / `methodology` / `decision` / `experience` / `intent` / `meta`
 
 ## 查询知识
 
 ```bash
+kivo embed-backfill
 kivo query "TypeScript 类型"
 ```
 
@@ -53,7 +53,7 @@ kivo query "路由规则" --nature rule --domain "agent-scheduling"
 kivo ingest --dir ./docs --llm
 ```
 
-`--llm` 启用 LLM 辅助提取（需配置 OPENAI_API_KEY）。
+`--llm` 启用 LLM 辅助提取，使用 OpenClaw `openclaw.json` 中的 provider 配置，或临时读取 `OPENAI_API_KEY`。
 
 ## 健康检查
 
@@ -63,14 +63,9 @@ kivo config-check    # 配置校验
 kivo capabilities    # 能力检测
 ```
 
-## 启动 Web 工作台
+## Web 工作台
 
-```bash
-cd node_modules/@self-evolving-harness/kivo/web
-npm install && npm run dev
-```
-
-访问 `http://localhost:3000`，可视化管理知识库。
+发布到 npm 的 CLI 包不包含本地 `kivo web` 命令，也不包含 `node_modules/@self-evolving-harness/kivo/web` 源码目录。需要 Web 工作台时，请从 KIVO 源码仓库启动 `web/` 应用，或使用已部署的 KIVO Web 入口。
 
 ## 编程接口
 

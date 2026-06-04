@@ -74,7 +74,16 @@ async function main() {
       }
       const addOpts = parseFlags(['content', 'tags', 'source', 'confidence', 'domain', 'status'], ['json', 'no-quality-gate']);
       const { runAdd } = await import('./add.js');
-      const addOutput = await runAdd(addType, addTitle, addOpts);
+      const addOutput = await runAdd(addType, addTitle, {
+        content: typeof addOpts.content === 'string' ? addOpts.content : undefined,
+        tags: typeof addOpts.tags === 'string' ? addOpts.tags : undefined,
+        source: typeof addOpts.source === 'string' ? addOpts.source : undefined,
+        confidence: typeof addOpts.confidence === 'string' ? addOpts.confidence : undefined,
+        domain: typeof addOpts.domain === 'string' ? addOpts.domain : undefined,
+        status: typeof addOpts.status === 'string' ? addOpts.status : undefined,
+        json: !!addOpts.json,
+        noQualityGate: !!addOpts['no-quality-gate'],
+      });
       console.log(addOutput);
       break;
     }
@@ -978,7 +987,12 @@ General Options:
   --yes, -y            Non-interactive mode (default, kept for backward compat)
   --interactive, -i    Enable interactive prompts
   --strict             Strict mode for doc-gate`);
-      process.exitCode = (command && command !== '--help' && command !== '-h') ? 1 : 0;
+      if (command && command !== '--help' && command !== '-h') {
+        console.error(`Unknown command: ${command}`);
+        process.exitCode = 1;
+      } else {
+        process.exitCode = 0;
+      }
   }
 }
 

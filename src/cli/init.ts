@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import Database from 'better-sqlite3';
 import { DEFAULT_CONFIG } from '../config/types.js';
-import { buildAutomationCommands, installAutomationCrontab } from './automation-setup.js';
+import { buildAutomationCommands, installAutomationCrontab, isOpenClawHost } from './automation-setup.js';
 
 const CONFIG_FILENAME = 'kivo.config.json';
 const MIN_NODE_MAJOR = 20;
@@ -179,11 +179,15 @@ export async function runInit(options: InitOptions = {}): Promise<string> {
   lines.push('  npx kivo query <text> — 搜索知识库');
   lines.push('');
 
-  // Install intent injection hook into OpenClaw workspace
-  lines.push(...installIntentInjectionHook());
-  lines.push('⚠️  请重启 OpenClaw Gateway 以加载知识注入 Hook：');
-  lines.push('   openclaw gateway restart');
-  lines.push('');
+  if (isOpenClawHost()) {
+    lines.push(...installIntentInjectionHook());
+    lines.push('⚠️  请重启 OpenClaw Gateway 以加载知识注入 Hook：');
+    lines.push('   openclaw gateway restart');
+    lines.push('');
+  } else {
+    lines.push('ℹ 未检测到 OpenClaw 宿主环境，已跳过 Hook 安装和 Gateway 重启提示。');
+    lines.push('');
+  }
 
   const automation = buildAutomationCommands(dir);
   lines.push('自动化建议：');
@@ -191,8 +195,12 @@ export async function runInit(options: InitOptions = {}): Promise<string> {
   lines.push(`  badcase 监听：${automation.cronLines[1]}`);
   lines.push(`  手动前台运行：npx ${automation.watcherCommand} --once`);
 
-  const crontabResult = installAutomationCrontab(dir);
-  lines.push(`  自动注册：${crontabResult.message}`);
+  if (isOpenClawHost()) {
+    const crontabResult = installAutomationCrontab(dir);
+    lines.push(`  自动注册：${crontabResult.message}`);
+  } else {
+    lines.push('  自动注册：未检测到 OpenClaw 宿主环境，跳过 crontab 写入。');
+  }
 
   return lines.join('\n');
 }

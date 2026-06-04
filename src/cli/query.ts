@@ -7,6 +7,8 @@ import { shouldBypassExternalModelsInTests } from '../utils/test-runtime.js';
 import { createEmbeddingProvider } from '../embedding/create-provider.js';
 import { readEmbeddingConfig, checkEmbeddingHealth, EmbeddingUnreachableError, EmbeddingNotConfiguredError, EmbeddingModelNotLoadedError } from '../embedding/health-check.js';
 
+const EMBEDDING_PROVIDER_GUIDANCE = '需要配置 embedding provider。请参考 README Prerequisites：配置 OpenClaw openclaw.json 中的 embedding provider，或在 kivo.config.json 中设置 embedding.provider / embedding.model / embedding.baseUrl，然后运行 npx kivo embed-backfill。';
+
 export interface QueryFilterOptions {
   nature?: string;
   functionTag?: string;
@@ -49,9 +51,8 @@ export async function runQuery(queryText: string, filters?: QueryFilterOptions):
   if (reason) {
     throw new Error(
       `KIVO 向量检索不可用：${reason}\n` +
-      "请确认 embedding provider 已配置且服务已启动。\n" +
-      "运行 'kivo init' 进行配置，或手动设置 embedding.provider / embedding.model / embedding.baseUrl\n" +
-      "推荐方案: ollama serve && ollama pull bge-m3"
+      `${EMBEDDING_PROVIDER_GUIDANCE}\n` +
+      '推荐方案：ollama serve && ollama pull bge-m3:latest && npx kivo init && npx kivo embed-backfill'
     );
   }
 
@@ -85,12 +86,12 @@ async function detectVectorSearchUnavailableReason(dbPath: string): Promise<stri
     const hasEmbedding = columns.some(c => c.name === 'embedding');
     if (!hasEmbedding) {
       db.close();
-      return '向量化未完成，当前使用关键词搜索。执行 npx kivo embed-backfill 启用语义搜索。';
+      return '数据库缺少 embedding 列，当前无法执行语义检索。';
     }
     const embCount = (db.prepare('SELECT COUNT(*) as cnt FROM entries WHERE embedding IS NOT NULL').get() as { cnt: number }).cnt;
     db.close();
     if (embCount === 0) {
-      return '向量化未完成，当前使用关键词搜索。执行 npx kivo embed-backfill 启用语义搜索。';
+      return '知识库尚未生成向量索引，当前无法执行语义检索。';
     }
   } catch {
     return null;

@@ -26,6 +26,14 @@ const DEFAULT_MODEL = 'gpt-5.5';
 const DEFAULT_BASE_URL = 'https://api.penguinsaichat.dpdns.org/v1';
 const KIVO_PROVIDER_ID = 'penguin-kivo';
 
+export const LLM_PROVIDER_GUIDANCE = `需要配置 LLM provider。未检测到 LLM provider 配置，请参考 README Prerequisites。
+KIVO 共享 OpenClaw 的 openclaw.json provider 配置，不需要重复维护一份独立密钥。
+在 OpenClaw 环境中，请配置 models.providers["${KIVO_PROVIDER_ID}"] 的 apiKey/baseUrl/model；
+非 OpenClaw 环境可临时设置 OPENAI_API_KEY、OPENAI_BASE_URL、KIVO_LLM_MODEL。`;
+
+export function formatLlmProviderError(detail?: string): string {
+  return detail ? `${LLM_PROVIDER_GUIDANCE}\n原因：${detail}` : LLM_PROVIDER_GUIDANCE;
+}
 /** Ensure baseUrl ends with /v1 (OpenAI-compatible endpoint convention) */
 function normalizeBaseUrl(raw: string): string {
   let url = raw.replace(/\/+$/, '');
@@ -78,7 +86,7 @@ export function resolveLlmConfig(): LlmConfig | { error: string } {
   const ocPath = resolve(process.env.HOME ?? '/root', '.openclaw', 'openclaw.json');
   if (!existsSync(ocPath)) {
     return {
-      error: `No API key configured. Set OPENAI_API_KEY environment variable or configure models.providers["${KIVO_PROVIDER_ID}"] in openclaw.json. KIVO requires LLM-based extraction — there is no offline fallback.`,
+      error: formatLlmProviderError(`未找到 ${ocPath}`),
     };
   }
 
@@ -94,7 +102,7 @@ export function resolveLlmConfig(): LlmConfig | { error: string } {
 
   if (!providers || typeof providers !== 'object') {
     return {
-      error: `No models.providers found in openclaw.json. Configure models.providers["${KIVO_PROVIDER_ID}"] with an apiKey and a gpt-5.5 model.`,
+      error: formatLlmProviderError('openclaw.json 中没有 models.providers'),
     };
   }
 
@@ -102,7 +110,7 @@ export function resolveLlmConfig(): LlmConfig | { error: string } {
   const kivoProvider = providers[KIVO_PROVIDER_ID];
   if (!kivoProvider?.apiKey) {
     return {
-      error: `Provider "${KIVO_PROVIDER_ID}" not found or missing apiKey in openclaw.json. KIVO requires a dedicated provider — there is no fallback to penguin-main, openai, or any other provider.`,
+      error: formatLlmProviderError(`models.providers["${KIVO_PROVIDER_ID}"] 不存在或缺少 apiKey`),
     };
   }
 
