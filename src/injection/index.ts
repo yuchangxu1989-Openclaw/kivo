@@ -1,5 +1,7 @@
 export { ContextInjector } from './context-injector.js';
 export type { ContextInjectorOptions, InjectionRequest, InjectionResponse, ScorerLike } from './context-injector.js';
+export { SubjectAwareInjector } from './subject-aware-injector.js';
+export type { SubjectAwareInjectionRequest, SubjectAwareInjectionResponse, SubjectAwareInjectedEntry, SubjectRelationGroup, SubjectSourceRelationType, SubjectSourceRef } from './subject-aware-injector.js';
 export { RelevanceScorer } from './relevance-scorer.js';
 export type { RelevanceScorerOptions, ScoredEntry } from './relevance-scorer.js';
 export { InjectionFormatter, estimateTokens } from './injection-formatter.js';
