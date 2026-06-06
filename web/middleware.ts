@@ -8,13 +8,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 // Public API routes that do not require authentication
 const PUBLIC_API_ROUTES = [
   '/api/auth',      // login, verify
-  '/api/internal/dispatcher/tick', // internal cron endpoint; route verifies KIVO_INTERNAL_TOKEN
   '/api/v1/search', // search is public
 ];
-
-function matchesPublicApiRoute(pathname: string, route: string): boolean {
-  return pathname === route || pathname.startsWith(`${route}/`);
-}
 
 export function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname ?? '/';
@@ -25,7 +20,7 @@ export function middleware(request: NextRequest) {
   }
 
   // Allow portal (login entry) and whitelisted public API routes
-  if (pathname === '/portal' || PUBLIC_API_ROUTES.some(r => matchesPublicApiRoute(pathname, r))) {
+  if (pathname === '/portal' || PUBLIC_API_ROUTES.some(r => pathname.startsWith(r))) {
     return NextResponse.next();
   }
 
