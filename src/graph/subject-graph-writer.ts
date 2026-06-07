@@ -1,11 +1,25 @@
 import fs from 'node:fs';
+import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import type { EmbeddingProvider } from '../embedding/embedding-provider.js';
 import { LocalEmbedding } from '../embedding/local-embedding.js';
 import type { KnowledgeEntry } from '../types/index.js';
 import { RELATION_TYPES, isRelationType, type RelationType } from '../types/graph.js';
 
-const OPENCLAW_CONFIG_PATH = '/root/.openclaw/openclaw.json';
+/**
+ * Resolve the openclaw.json path in a portable way.
+ * Order: OPENCLAW_CONFIG → OPENCLAW_HOME/openclaw.json → $HOME/.openclaw/openclaw.json.
+ */
+function resolveOpenClawConfigPath(): string {
+  if (process.env.OPENCLAW_CONFIG) {
+    return process.env.OPENCLAW_CONFIG;
+  }
+  if (process.env.OPENCLAW_HOME) {
+    return join(process.env.OPENCLAW_HOME, 'openclaw.json');
+  }
+  return join(process.env.HOME || process.env.USERPROFILE || '.', '.openclaw', 'openclaw.json');
+}
+
 const SUBJECT_GRAPH_PROVIDER_ID = 'penguin-main';
 const SUBJECT_GRAPH_MODEL = 'claude-opus-4-7';
 const DEFAULT_TOP_K = 8;
@@ -183,13 +197,14 @@ function setGraphPending(db: Database.Database, entryId: string, pending: boolea
 
 function getPenguinProvider(): PenguinProviderConfig {
   if (cachedPenguinProvider) return cachedPenguinProvider;
-  const raw = fs.readFileSync(OPENCLAW_CONFIG_PATH, 'utf-8');
+  const configPath = resolveOpenClawConfigPath();
+  const raw = fs.readFileSync(configPath, 'utf-8');
   const parsed = JSON.parse(raw) as {
     models?: { providers?: Record<string, { baseUrl?: string; apiKey?: string }> };
   };
   const provider = parsed.models?.providers?.[SUBJECT_GRAPH_PROVIDER_ID];
   if (!provider?.baseUrl || !provider.apiKey) {
-    throw new Error(`Provider "${SUBJECT_GRAPH_PROVIDER_ID}" missing baseUrl/apiKey in ${OPENCLAW_CONFIG_PATH}`);
+    throw new Error(`Provider "${SUBJECT_GRAPH_PROVIDER_ID}" missing baseUrl/apiKey in ${configPath}`);
   }
   cachedPenguinProvider = {
     baseUrl: provider.baseUrl.replace(/\/$/, ''),

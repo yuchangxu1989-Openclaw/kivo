@@ -21,6 +21,21 @@ import { shortenKnowledgeTitle } from '../extraction/extraction-utils.js';
 
 export type ExtractSource = 'sessions' | 'memory' | 'all';
 
+/**
+ * Resolve the OpenClaw workspace root in a portable way.
+ * Order: OPENCLAW_WORKSPACE → $HOME/.openclaw/workspace → cwd fallback.
+ */
+function resolveWorkspaceRoot(): string {
+  if (process.env.OPENCLAW_WORKSPACE) {
+    return resolve(process.env.OPENCLAW_WORKSPACE);
+  }
+  const home = process.env.HOME || process.env.USERPROFILE;
+  if (home) {
+    return join(home, '.openclaw', 'workspace');
+  }
+  return process.cwd();
+}
+
 export interface ExtractSessionsOptions {
   dryRun?: boolean;
   limit?: number;
@@ -55,12 +70,13 @@ function checkBgeAvailability(): boolean {
  * Returns the path to the generated candidates JSON.
  */
 function runPythonPreprocessor(since?: string, sinceTimestamp?: string): string {
-  const scriptPath = resolve('/root/.openclaw/workspace/scripts/session-knowledge-extractor.py');
+  const workspaceRoot = resolveWorkspaceRoot();
+  const scriptPath = resolve(workspaceRoot, 'scripts', 'session-knowledge-extractor.py');
   if (!existsSync(scriptPath)) {
     throw new Error(`Python preprocessor not found: ${scriptPath}`);
   }
 
-  const outputPath = resolve('/root/.openclaw/workspace/reports/session-knowledge-candidates.json');
+  const outputPath = resolve(workspaceRoot, 'reports', 'session-knowledge-candidates.json');
   let cmd = `python3 "${scriptPath}"`;
   if (since) {
     cmd += ` --since "${since}"`;
@@ -158,7 +174,7 @@ async function runExtractSessionsOnly(options: ExtractSessionsOptions = {}): Pro
 
   // Check preprocessor script existence BEFORE expensive BGE check (avoids loading PyTorch for nothing)
   if (!candidates) {
-    const scriptPath = resolve('/root/.openclaw/workspace/scripts/session-knowledge-extractor.py');
+    const scriptPath = resolve(resolveWorkspaceRoot(), 'scripts', 'session-knowledge-extractor.py');
     if (!existsSync(scriptPath)) {
       console.log('ℹ Python 预处理脚本不存在，跳过会话知识萃取。');
       console.log(`  预期路径: ${scriptPath}`);

@@ -10,7 +10,7 @@
  *
  * Usage: kivo cron [--json] [--full]
  * Designed for crontab, e.g.:
- *   0,30 * * * * cd /root/.openclaw/workspace && npx kivo cron
+ *   0,30 * * * * cd $HOME/.openclaw/workspace && npx kivo cron
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';

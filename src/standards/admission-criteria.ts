@@ -73,7 +73,7 @@ export const BEHAVIORAL_CHANGE_NEGATIVE_EXAMPLES = [
   '临时优先级排序（例如：今天优先处理官网、KIVO优先级高于AEO）',
   '排查步骤记录（例如：加日志定位根因、grep查配置、openclaw doctor报错）',
   '临时决策/执行层决策（例如：紧急处理、暂时跳过、这个先不做）',
-  '具体文件路径、命令行、配置片段（例如：/root/...、systemctl restart、JSON/YAML）',
+  '具体文件路径、命令行、配置片段（例如：~/...、systemctl restart、JSON/YAML）',
   '未经抽象的事件记录（例如：今天cc超时了、boom provider挂了）',
   '配置描述（例如：当前用penguin provider、agent池有12个）',
   '待办事项（例如：需要加个监控脚本）',

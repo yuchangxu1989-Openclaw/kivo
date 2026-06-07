@@ -203,7 +203,7 @@ ${buildBehavioralChangeTestSection()}
 ✖ content:"用户让 agent 读取任务看板再派发" ← 任务派发指令（跨场景不通过）
 ✖ content:"禁止主会话执行超过30秒的命令" ← 行为约束/铁律原文搬运（抽象性不通过，是指令不是理解模型）
 ✖ content:"SEVO 拦截不可绕过" ← 系统规则/铁律（抽象性不通过，是指令不是知识）
-✖ content:"/root/.openclaw/workspace/projects/kivo/src/cli/session-knowledge-llm.ts 要修改" ← 具体文件路径（跨场景不通过）
+✖ content:"src/cli/session-knowledge-llm.ts 要修改" ← 具体文件路径（跨场景不通过）
 ✖ content:"执行 systemctl --user restart kivo-web" ← 命令行操作（抽象性不通过）
 ✖ content:"当前用 penguin provider，agent 池有 12 个" ← 配置描述（时效性不通过）
 ✖ content:"需要加个监控脚本" ← 待办事项（时效性不通过）

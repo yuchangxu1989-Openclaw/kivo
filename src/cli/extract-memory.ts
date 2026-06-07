@@ -33,6 +33,21 @@ import type { KnowledgeEntry, KnowledgeType, KnowledgeNature, KnowledgeFunction 
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+/**
+ * Resolve the OpenClaw workspace root in a portable way.
+ * Order: OPENCLAW_WORKSPACE → $HOME/.openclaw/workspace → cwd fallback.
+ */
+function resolveMemoryRoot(): string {
+  if (process.env.OPENCLAW_WORKSPACE) {
+    return resolve(process.env.OPENCLAW_WORKSPACE);
+  }
+  const home = process.env.HOME || process.env.USERPROFILE;
+  if (home) {
+    return join(home, '.openclaw', 'workspace');
+  }
+  return process.cwd();
+}
+
 export interface ExtractMemoryOptions {
   dryRun?: boolean;
   limit?: number;
@@ -156,7 +171,7 @@ export async function extractMemoryKnowledge(
   const {
     dryRun = false,
     limit,
-    memoryDir = resolve('/root/.openclaw/workspace/memory'),
+    memoryDir = resolve(resolveMemoryRoot(), 'memory'),
     noQualityGate = false,
   } = options;
 

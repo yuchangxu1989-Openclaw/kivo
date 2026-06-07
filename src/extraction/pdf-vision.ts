@@ -98,12 +98,26 @@ const IMAGE_TYPE_ALIASES: Array<[ImageContentType, string[]]> = [
 ];
 
 /**
+ * Resolve the openclaw.json path in a portable way.
+ * Order: OPENCLAW_CONFIG → OPENCLAW_HOME/openclaw.json → $HOME/.openclaw/openclaw.json.
+ */
+function resolveOpenClawConfigPath(): string {
+  if (process.env.OPENCLAW_CONFIG) {
+    return process.env.OPENCLAW_CONFIG;
+  }
+  if (process.env.OPENCLAW_HOME) {
+    return join(process.env.OPENCLAW_HOME, 'openclaw.json');
+  }
+  return join(process.env.HOME || process.env.USERPROFILE || '.', '.openclaw', 'openclaw.json');
+}
+
+/**
  * Load vision config from openclaw.json penguin-main provider.
  */
 export function loadVisionConfig(): PdfVisionConfig {
-  const configPath = '/root/.openclaw/openclaw.json';
+  const configPath = resolveOpenClawConfigPath();
   if (!existsSync(configPath)) {
-    throw new Error('openclaw.json not found at /root/.openclaw/openclaw.json');
+    throw new Error(`openclaw.json not found at ${configPath}`);
   }
   const cfg = JSON.parse(readFileSync(configPath, 'utf-8'));
   const pm = cfg?.models?.providers?.['penguin-main'];
