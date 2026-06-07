@@ -68,7 +68,7 @@ describe('FR-D01 research API and lifecycle', () => {
 
   it('state machine can move pending to executing to completed with a report path', async () => {
     const dbMod = await import('../../lib/research-db');
-    const dashboard = dbMod.createResearchTask({
+    const dashboard = await dbMod.createResearchTask({
       query: '状态机测试',
       topic: '状态机测试',
       scope: 'unit',
@@ -98,7 +98,7 @@ describe('FR-D01 research API and lifecycle', () => {
 describe('FR-D02 research queue adoption flow', () => {
   it('GET detail exposes report content and adopt writes entries plus operation log', async () => {
     const dbMod = await import('../../lib/research-db');
-    const dashboard = dbMod.createResearchTask({
+    const dashboard = await dbMod.createResearchTask({
       query: '采纳流程测试',
       topic: '采纳流程测试',
       scope: 'unit',

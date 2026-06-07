@@ -1,28 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { badRequest, notFound, serverError } from '@/lib/errors';
 import {
-  createResearchTask,
-  deleteResearchTask,
-  getResearchDashboardData,
-  setResearchAutoPaused,
-  updateResearchTaskPriority,
-} from '@/lib/domain-stores';
-import type { Priority, ResearchDashboardData } from '@/lib/domain-stores';
+  createResearchTask as createResearchTaskDb,
+  deleteResearchTask as deleteResearchTaskDb,
+  getResearchDashboardData as getResearchDashboardDataDb,
+  setResearchAutoPaused as setResearchAutoPausedDb,
+  updateResearchTaskPriority as updateResearchTaskPriorityDb,
+} from '@/lib/research-db';
+import type { Priority, ResearchDashboardData } from '@/lib/research-db';
 import type { ApiResponse } from '@/types';
 
-const PRIORITIES: Priority[] = ['高', '中', '低'];
+const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent'];
 const DEFAULT_EXPECTED_TYPES = ['fact', 'decision', 'methodology'];
 
 function inferBudgetCredits(priority: Priority) {
-  if (priority === '高') return 36;
-  if (priority === '中') return 20;
+  if (priority === 'urgent') return 48;
+  if (priority === 'high') return 36;
+  if (priority === 'medium') return 20;
   return 12;
+}
+
+function parsePriority(value: unknown): Priority {
+  if (value === '高') return 'high';
+  if (value === '中') return 'medium';
+  if (value === '低') return 'low';
+  return PRIORITIES.includes(value as Priority) ? value as Priority : 'medium';
 }
 
 export async function GET() {
   try {
     const response: ApiResponse<ResearchDashboardData> = {
-      data: getResearchDashboardData(),
+      data: getResearchDashboardDataDb(),
     };
 
     return NextResponse.json(response);
@@ -34,19 +42,21 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const topic = typeof body?.topic === 'string' ? body.topic.trim() : '';
-    const scope = typeof body?.scope === 'string' ? body.scope.trim() : '';
-    const priority = body?.priority as Priority | undefined;
+    const query = typeof body?.query === 'string' ? body.query.trim() : '';
+    const topic = typeof body?.topic === 'string' ? body.topic.trim() : query;
+    const scope = typeof body?.scope === 'string' ? body.scope.trim() : topic;
+    const priority = parsePriority(body?.priority);
 
-    if (!topic || !scope || !priority || !PRIORITIES.includes(priority)) {
-      return badRequest('topic, scope, priority are required');
+    if (!topic || !scope || !PRIORITIES.includes(priority)) {
+      return badRequest('topic or query, scope, and valid priority are required');
     }
 
     const response: ApiResponse<ResearchDashboardData> = {
-      data: createResearchTask({
-        topic, scope, priority,
+      data: await createResearchTaskDb({
+        topic, query, scope, priority,
         budgetCredits: inferBudgetCredits(priority),
         expectedTypes: DEFAULT_EXPECTED_TYPES,
+        requestedBy: typeof body?.requestedBy === 'string' ? body.requestedBy : undefined,
       }),
     };
 
@@ -62,19 +72,19 @@ export async function PATCH(request: NextRequest) {
 
     if (typeof body?.autoResearchPaused === 'boolean') {
       const response: ApiResponse<ResearchDashboardData> = {
-        data: setResearchAutoPaused(body.autoResearchPaused),
+        data: setResearchAutoPausedDb(body.autoResearchPaused),
       };
       return NextResponse.json(response);
     }
 
     const id = typeof body?.id === 'string' ? body.id : '';
-    const priority = body?.priority as Priority | undefined;
+    const priority = parsePriority(body?.priority);
 
-    if (!id || !priority || !PRIORITIES.includes(priority)) {
+    if (!id || !PRIORITIES.includes(priority)) {
       return badRequest('id and valid priority are required');
     }
 
-    const updated = updateResearchTaskPriority(id, priority);
+    const updated = updateResearchTaskPriorityDb(id, priority);
     if (!updated) {
       return notFound(`Research task not found: ${id}`);
     }
@@ -95,7 +105,7 @@ export async function DELETE(request: NextRequest) {
       return badRequest('id is required');
     }
 
-    const updated = deleteResearchTask(id);
+    const updated = deleteResearchTaskDb(id);
     if (!updated) {
       return notFound(`Research task not found: ${id}`);
     }

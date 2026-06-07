@@ -1,5 +1,6 @@
 export type Priority = 'low' | 'medium' | 'high' | 'urgent';
 export type ResearchStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type ResearchReferenceBatchStatus = 'extracting' | 'completed' | 'failed' | 'duplicate' | 'skipped';
 
 export interface ResearchTask {
   id: string;
@@ -22,10 +23,85 @@ export interface ResearchTask {
   failureReason?: string;
 }
 
+export interface ResearchWikiEntryLink {
+  id: string;
+  title?: string;
+  summary?: string;
+}
+
+export interface ResearchReferenceBatch {
+  id: string;
+  status: ResearchReferenceBatchStatus;
+  sourceType?: 'local' | 'lark' | string;
+  contentHash?: string;
+  confirmedBy: string;
+  confirmedAt?: number | string | null;
+  extractedAt?: number | string | null;
+  failureReason?: string | null;
+  insertedCount: number;
+  duplicateOfBatchId?: string;
+}
+
+export interface ResearchReport {
+  id: string;
+  title: string;
+  reportUri: string;
+  reportKind?: string;
+  contentHash?: string;
+  externalContentHash?: string;
+  isReference: boolean;
+  referenceMarkedAt?: number | string | null;
+  referenceMarkedBy?: string | null;
+  sourceType?: 'local' | 'lark' | string;
+  failureReason?: string | null;
+  batchStatus?: ResearchReferenceBatchStatus;
+  insertedCount?: number;
+  wikiEntryCount: number;
+  wikiEntries?: ResearchWikiEntryLink[];
+  entryIds?: string[];
+  referenceBatches: ResearchReferenceBatch[];
+}
+
+export interface ResearchTaskRegistryItem {
+  id: string;
+  title: string;
+  query?: string | null;
+  status: ResearchStatus;
+  sourceType?: string | null;
+  sourceRef?: string | null;
+  actorId?: string | null;
+  executorId?: string | null;
+  createdAt?: number | string | null;
+  updatedAt?: number | string | null;
+  startedAt?: number | string | null;
+  completedAt?: number | string | null;
+  cancelledAt?: number | string | null;
+  failureReason?: string | null;
+  reportPath?: string | null;
+  resultPath?: string | null;
+  reports: ResearchReport[];
+}
+
+export interface ResearchTopic {
+  id: string;
+  name: string;
+  normalizedName: string;
+  description?: string | null;
+  createdAt?: number | string | null;
+  updatedAt?: number | string | null;
+  taskCount: number;
+  reportCount: number;
+  referenceReportCount: number;
+  wikiEntryCount: number;
+  tasks: ResearchTaskRegistryItem[];
+}
+
 export interface ResearchDashboardData {
   autoResearchPaused: boolean;
   tasks: ResearchTask[];
+  topics: ResearchTopic[];
 }
+
 
 export interface ActivityEvent {
   id: string;

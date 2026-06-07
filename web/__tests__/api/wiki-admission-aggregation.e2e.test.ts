@@ -35,7 +35,7 @@ afterEach(() => {
 describe('FR-P05/FR-P06 wiki admission + aggregation e2e', () => {
   it('adopted research report auto-generates wiki page and aggregate API returns versions + links', async () => {
     const researchDb = await import('../../lib/research-db');
-    const dashboard = researchDb.createResearchTask({
+    const dashboard = await researchDb.createResearchTask({
       query: '概率论调研',
       topic: '概率论',
       scope: '数学',
