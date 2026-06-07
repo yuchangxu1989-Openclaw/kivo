@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import type { KnowledgeType } from '../types/index.js';
 import type { ResearchTask } from '../research/research-task-types.js';
 
-export type AnalysisArtifactStatus = 'ready' | 'pending_review' | 'approved' | 'rejected';
+export type AnalysisArtifactStatus = 'ready' | 'pending' | 'approved' | 'rejected';
 export type AnalysisCandidateAction = 'approved' | 'rejected' | 'edited';
 
 export interface AnalysisClaim {
@@ -98,7 +98,7 @@ export class AnalysisArtifactStore {
       id: randomUUID(),
       createdAt: now,
       updatedAt: now,
-      status: shouldQueue ? 'pending_review' : 'ready',
+      status: shouldQueue ? 'pending' : 'ready',
       candidateDecisions: [],
     };
 
@@ -157,7 +157,7 @@ export class AnalysisArtifactStore {
       !next.candidateDecisions.some(decisionItem => decisionItem.candidateId === candidate.candidateId),
     );
 
-    next.status = unresolved.length === 0 ? 'approved' : 'pending_review';
+    next.status = unresolved.length === 0 ? 'approved' : 'pending';
     next.updatedAt = new Date();
 
     this.artifacts.set(artifactId, next);

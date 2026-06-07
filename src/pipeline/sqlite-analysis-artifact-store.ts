@@ -64,7 +64,7 @@ export class SQLiteAnalysisArtifactStore {
       id: randomUUID(),
       createdAt: now,
       updatedAt: now,
-      status: shouldQueue ? 'pending_review' : 'ready',
+      status: shouldQueue ? 'pending' : 'ready',
       candidateDecisions: [],
     };
 
@@ -142,7 +142,7 @@ export class SQLiteAnalysisArtifactStore {
       !artifact.candidateDecisions.some(d => d.candidateId === candidate.candidateId),
     );
 
-    artifact.status = unresolved.length === 0 ? 'approved' : 'pending_review';
+    artifact.status = unresolved.length === 0 ? 'approved' : 'pending';
     artifact.updatedAt = new Date();
 
     const txn = this.db.transaction(() => {

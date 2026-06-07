@@ -29,7 +29,7 @@ export type SourceChannel = 'web_upload' | 'api' | 'feishu' | 'wechat' | 'manual
  *  - pending:     已入库，等待 A2 调度
  *  - in_progress: A2 正在分类
  *  - classified:  分类完成（高置信度）
- *  - needs_review: 低置信度，进入 pending_review 队列
+ *  - needs_review: 低置信度，进入 pending 队列
  *  - failed:      分类失败
  */
 export type ClassificationStatus =

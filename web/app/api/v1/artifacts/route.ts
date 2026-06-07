@@ -11,7 +11,7 @@ import type { ApiResponse } from '@/types';
 export interface ArtifactListItem {
   id: string;
   sourceId: string;
-  status: 'pending_review' | 'approved' | 'rejected' | 'ready';
+  status: 'pending' | 'approved' | 'rejected' | 'ready';
   confidence: number;
   claimsCount: number;
   entityCount: number;
@@ -60,7 +60,7 @@ function seedArtifacts(): ArtifactDetail[] {
     {
       id: 'art-001',
       sourceId: 'conv-2024-001',
-      status: 'pending_review',
+      status: 'pending',
       confidence: 0.45,
       claimsCount: 3,
       entityCount: 2,
@@ -98,7 +98,7 @@ function seedArtifacts(): ArtifactDetail[] {
     {
       id: 'art-002',
       sourceId: 'doc-import-003',
-      status: 'pending_review',
+      status: 'pending',
       confidence: 0.55,
       claimsCount: 2,
       entityCount: 1,

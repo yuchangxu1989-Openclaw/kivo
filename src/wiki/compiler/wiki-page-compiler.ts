@@ -268,7 +268,7 @@ export class WikiPageCompiler {
       FROM entries
       WHERE subject_id = ?
         AND type IN (${ATOMIC_ENTRY_TYPES.map(() => '?').join(', ')})
-        AND COALESCE(status, 'active') != 'deleted'
+        AND COALESCE(status, 'active') = 'active'
     `).get(subjectId, ...ATOMIC_ENTRY_TYPES) as { count: number } | undefined;
     return row?.count ?? 0;
   }
@@ -426,7 +426,7 @@ export class WikiPageCompiler {
           FROM entries
           WHERE subject_id IN (${placeholders})
             AND type IN (${ATOMIC_ENTRY_TYPES.map(() => '?').join(', ')})
-            AND COALESCE(status, 'active') != 'deleted'
+            AND COALESCE(status, 'active') = 'active'
           ORDER BY updated_at DESC, title ASC
         `).all(...descendantIds, ...ATOMIC_ENTRY_TYPES) as EntryRecord[]);
 

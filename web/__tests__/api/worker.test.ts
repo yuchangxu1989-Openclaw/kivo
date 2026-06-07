@@ -3,7 +3,7 @@
  *
  * 覆盖三条核心路径：
  *   - confidence 高 → classified (AC-CLASSIFY-2.1)
- *   - confidence 低 → pending_review (AC-CLASSIFY-2.2)
+ *   - confidence 低 → pending (AC-CLASSIFY-2.2)
  *   - 失败重试 → retry_count++ → 达 3 次 failed (AC-CLASSIFY-4.1)
  */
 
@@ -215,7 +215,7 @@ describe('Worker', () => {
     expect(task.status).toBe('done');
   });
 
-  it('AC-CLASSIFY-2.2: low confidence → pending_review (needs_review)', async () => {
+  it('AC-CLASSIFY-2.2: low confidence → pending (needs_review)', async () => {
     mockClassify.mockResolvedValue(makeClassifyResult({
       classificationStatus: 'pending',
       subjectNodeId: null,

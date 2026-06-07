@@ -180,7 +180,7 @@ function ReviewCard({
 
 export default function ReviewPage() {
   const { data, error, isLoading, mutate } = useApi<ApiResponse<KnowledgeEntry[]>>(
-    '/api/v1/knowledge?status=pending_review&pageSize=50&sort=-createdAt'
+    '/api/v1/knowledge?status=pending&pageSize=50&sort=-createdAt'
   );
 
   const entries = data?.data ?? [];

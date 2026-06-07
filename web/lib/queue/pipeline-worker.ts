@@ -1035,13 +1035,13 @@ export async function executeExtractBatchTask(
       const totalExtractCount = (db.prepare(
         `SELECT COUNT(*) as cnt FROM entries
           WHERE json_extract(source_json, '$.materialId') = ?
-            AND COALESCE(status, 'active') != 'deleted'`,
+            AND COALESCE(status, 'active') = 'active'`,
       ).get(materialId) as { cnt: number }).cnt;
 
       const allEntries = db.prepare(
         `SELECT title, content, type FROM entries
           WHERE json_extract(source_json, '$.materialId') = ?
-            AND COALESCE(status, 'active') != 'deleted'
+            AND COALESCE(status, 'active') = 'active'
           ORDER BY created_at ASC`,
       ).all(materialId) as Array<{ title: string; content: string; type: string }>;
 

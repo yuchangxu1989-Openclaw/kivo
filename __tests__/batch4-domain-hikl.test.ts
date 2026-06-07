@@ -159,7 +159,7 @@ describe('AnalysisArtifactStore Batch 4', () => {
       confidence: 0.4,
     });
 
-    expect(artifact.status).toBe('pending_review');
+    expect(artifact.status).toBe('pending');
     expect((await store.listReviewQueue())).toHaveLength(1);
 
     const approved = await store.approveCandidate(artifact.id, {

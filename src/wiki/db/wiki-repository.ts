@@ -157,7 +157,7 @@ export class WikiRepository {
   }
 
   listSpaces(includeDeleted = false): WikiEntryRecord[] {
-    const clause = includeDeleted ? '' : `AND deleted_at IS NULL AND status != 'deleted'`;
+    const clause = includeDeleted ? '' : `AND deleted_at IS NULL`;
     const rows = this.db.prepare(`
       SELECT * FROM entries
       WHERE type = 'wiki_space' ${clause}
@@ -168,7 +168,7 @@ export class WikiRepository {
 
   getSpaceTree(spaceId: string, includeDeleted = false): WikiTreeNode {
     const root = this.getRequiredById(spaceId, 'wiki_space');
-    const clause = includeDeleted ? '' : `AND deleted_at IS NULL AND status != 'deleted'`;
+    const clause = includeDeleted ? '' : `AND deleted_at IS NULL`;
     const subtreeRows = this.db.prepare(`
       WITH RECURSIVE subtree(id) AS (
         SELECT id FROM entries WHERE id = ?
@@ -287,7 +287,7 @@ export class WikiRepository {
     const current = this.getRequiredById(id);
     const ts = nowIso();
     this.db.prepare(`
-      UPDATE entries SET status = 'deleted', deleted_at = ?, updated_at = ? WHERE id = ?
+      UPDATE entries SET deleted_at = ?, updated_at = ? WHERE id = ?
     `).run(ts, ts, id);
     if (current.type === 'wiki_page') {
       this.db.prepare(`DELETE FROM wiki_links WHERE source_page_id = ? OR target_page_id = ?`).run(id, id);
@@ -306,7 +306,7 @@ export class WikiRepository {
   }
 
   findById(id: string, includeDeleted = false): WikiEntryRecord | null {
-    const clause = includeDeleted ? '' : `AND deleted_at IS NULL AND status != 'deleted'`;
+    const clause = includeDeleted ? '' : `AND deleted_at IS NULL`;
     const row = this.db.prepare(`
       SELECT * FROM entries WHERE id = ? AND type IN ('wiki_space', 'wiki_directory', 'wiki_page') ${clause}
     `).get(id) as EntryRow | undefined;
@@ -320,7 +320,6 @@ export class WikiRepository {
       WHERE e.type = 'wiki_page'
         AND e.title = ?
         AND e.deleted_at IS NULL
-        AND e.status != 'deleted'
       ORDER BY e.updated_at DESC
     `).all(title) as EntryRow[];
     if (!spaceId) {
@@ -335,7 +334,6 @@ export class WikiRepository {
       FROM entries
       WHERE type = 'wiki_page'
         AND deleted_at IS NULL
-        AND status != 'deleted'
         AND json_extract(metadata_json, '$.source.uri') = ?
       ORDER BY updated_at DESC
     `).all(uri) as EntryRow[];
@@ -348,7 +346,7 @@ export class WikiRepository {
   listChildren(parentId: string): WikiEntryRecord[] {
     const rows = this.db.prepare(`
       SELECT * FROM entries
-      WHERE parent_id = ? AND type IN ('wiki_directory', 'wiki_page') AND deleted_at IS NULL AND status != 'deleted'
+      WHERE parent_id = ? AND type IN ('wiki_directory', 'wiki_page') AND deleted_at IS NULL
       ORDER BY sort_order ASC, created_at ASC
     `).all(parentId) as EntryRow[];
     return rows.map((row) => this.mapRow(row));
@@ -481,7 +479,7 @@ export class WikiRepository {
   listAllPages(): WikiEntryRecord[] {
     const rows = this.db.prepare(`
       SELECT * FROM entries
-      WHERE type = 'wiki_page' AND deleted_at IS NULL AND status != 'deleted'
+      WHERE type = 'wiki_page' AND deleted_at IS NULL
       ORDER BY updated_at DESC
     `).all() as EntryRow[];
     return rows.map((row) => this.mapRow(row));

@@ -30,7 +30,7 @@ export type KnowledgeCategory =
   | 'experience'   // lessons learned, post-mortems, case studies
   | 'meta';        // meta-knowledge about the knowledge system itself
 
-export type EntryStatus = 'active' | 'pending_review' | 'superseded' | 'conflicted';
+export type EntryStatus = 'pending' | 'active' | 'rejected' | 'superseded' | 'conflicted';
 
 /**
  * Governance scope — where a knowledge entry applies (LLM-extracted, see llm-extractor SYSTEM_PROMPT).

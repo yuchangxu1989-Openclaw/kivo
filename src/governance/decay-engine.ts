@@ -4,7 +4,7 @@
  * Applies confidence decay to entries that haven't been updated or used:
  * - >90 days without update AND usage_count=0 → confidence *= 0.9
  * - >180 days without update → confidence *= 0.8
- * - confidence < 0.5 after decay → status = 'stale'
+ * - confidence < 0.5 after decay → status = 'pending'
  */
 
 import type Database from 'better-sqlite3';
@@ -12,7 +12,7 @@ import { ensureUsageColumns } from './health-monitor.js';
 
 export interface DecayReport {
   decayed: number;
-  stalemarked: number;
+  reviewMarked: number;
 }
 
 const DECAY_90_DAYS = 90;
@@ -27,7 +27,7 @@ const STALE_THRESHOLD = 0.5;
  * Rules:
  * - >90 days since updated_at AND usage_count=0 → confidence *= 0.9
  * - >180 days since updated_at (regardless of usage) → confidence *= 0.8
- * - After decay, if confidence < 0.5 → status = 'stale'
+ * - After decay, if confidence < 0.5 → status = 'pending'
  *
  * Decay is applied once per governance run (not cumulative within a single run).
  */
@@ -40,7 +40,7 @@ export function applyDecay(db: Database.Database): DecayReport {
   const updatedAt = now.toISOString();
 
   let decayed = 0;
-  let stalemarked = 0;
+  let reviewMarked = 0;
 
   const tx = db.transaction(() => {
     // Phase 1: Decay entries >180 days (stronger decay, regardless of usage)
@@ -60,16 +60,16 @@ export function applyDecay(db: Database.Database): DecayReport {
     const result90 = decay90.run(DECAY_FACTOR_90, updatedAt, cutoff90, cutoff180, STALE_THRESHOLD);
     decayed += result90.changes;
 
-    // Phase 3: Mark entries with confidence < threshold as stale
-    const markStale = db.prepare(
-      `UPDATE entries SET status = 'stale', updated_at = ?
+    // Phase 3: Send low-confidence entries through the current review state.
+    const markForReview = db.prepare(
+      `UPDATE entries SET status = 'pending', updated_at = ?
        WHERE status = 'active' AND confidence < ?`,
     );
-    const staleResult = markStale.run(updatedAt, STALE_THRESHOLD);
-    stalemarked = staleResult.changes;
+    const reviewResult = markForReview.run(updatedAt, STALE_THRESHOLD);
+    reviewMarked = reviewResult.changes;
   });
 
   tx();
 
-  return { decayed, stalemarked };
+  return { decayed, reviewMarked };
 }

@@ -8,11 +8,10 @@ function softDeleteMaterialEntries(db: ReturnType<typeof openWebDb>, materialId:
   const now = new Date().toISOString();
   db.prepare(`
     UPDATE entries
-    SET status = 'deleted',
-        deleted_at = COALESCE(deleted_at, ?),
+    SET deleted_at = COALESCE(deleted_at, ?),
         updated_at = ?
     WHERE json_extract(source_json, '$.materialId') = ?
-      AND COALESCE(status, 'active') != 'deleted'
+      AND deleted_at IS NULL
   `).run(now, now, materialId);
 }
 
@@ -50,7 +49,7 @@ export function triggerWikiMaterialReextract(pageId: string, content: string): {
           for (const candidateId of pageIds) {
             if (typeof candidateId !== 'string' || candidateId === pageId) continue;
             const candidate = repo.findById(candidateId);
-            if (candidate && candidate.type === 'wiki_page' && candidate.status !== 'deleted') {
+            if (candidate && candidate.type === 'wiki_page') {
               repo.softDeleteNode(candidate.id);
             }
           }

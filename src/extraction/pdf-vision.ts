@@ -485,10 +485,10 @@ export async function parsePdfMultimodal(
           const { imageBase64, imageRef } = renderPageToImage(tmpPdfPath, pageNumber, tmpDir, assetDir);
           const visionItems = await callVisionApi(config, imageBase64, pageNumber);
           const classification = await classifyImageContent(config, visionItems, pageNumber);
-          const pageStatus: EntryStatus = classification.confidence < 0.7 ? 'pending_review' : 'active';
+          const pageStatus: EntryStatus = classification.confidence < 0.7 ? 'pending' : 'active';
           const items = visionItems.map((item, index) => {
             const itemConfidence = item.confidence ?? classification.confidence;
-            const itemStatus: EntryStatus = Math.min(itemConfidence, classification.confidence) < 0.7 ? 'pending_review' : pageStatus;
+            const itemStatus: EntryStatus = Math.min(itemConfidence, classification.confidence) < 0.7 ? 'pending' : pageStatus;
             return {
               ...item,
               type: normalizeEntryType(item.type, classification.knowledgeType, item.content),
@@ -543,9 +543,9 @@ export async function parsePdfMultimodal(
               parserType: 'vision',
               imageRef,
               classification,
-              items: [{ content: text || '[vision returned empty]', type: 'fact', confidence: 0.5, status: 'pending_review' }],
+              items: [{ content: text || '[vision returned empty]', type: 'fact', confidence: 0.5, status: 'pending' }],
               metadata,
-              status: 'pending_review',
+              status: 'pending',
             });
             visionPages++;
             log(`  Page ${pageNumber}: vision returned empty, queued for review`);
@@ -562,9 +562,9 @@ export async function parsePdfMultimodal(
               source: 'text-extraction',
               sourceFile,
               parserType: 'text',
-              items: [{ content: text, type: 'fact', confidence: 0.5, status: 'pending_review' }],
+              items: [{ content: text, type: 'fact', confidence: 0.5, status: 'pending' }],
               metadata,
-              status: 'pending_review',
+              status: 'pending',
             });
             textPages++;
           }

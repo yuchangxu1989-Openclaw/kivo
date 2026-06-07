@@ -7,7 +7,7 @@ export type WikiEntryType = 'wiki_space' | 'wiki_directory' | 'wiki_page';
 export type WikiNodeType = 'space' | 'directory' | 'page';
 export type WikiSourceType = 'url' | 'document' | 'research' | 'feishu' | 'web';
 export type WikiDraftStatus = 'pending_confirmation' | 'confirmed' | 'discarded' | 'failed';
-export type WikiNodeStatus = 'active' | 'draft' | 'archived' | 'deleted';
+export type WikiNodeStatus = 'active' | 'draft' | 'archived';
 
 export interface LLMRequest {
   model: string;

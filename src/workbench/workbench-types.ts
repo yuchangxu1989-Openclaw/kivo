@@ -378,8 +378,9 @@ export interface LoginResult {
 
 /** Valid status transitions for knowledge entries (FR-W06 AC2). */
 export const STATUS_TRANSITIONS: Record<EntryStatus, EntryOperation[]> = {
+  pending: [],
   active: [],
-  pending_review: [],
+  rejected: [],
   superseded: [],
   conflicted: [],
 };

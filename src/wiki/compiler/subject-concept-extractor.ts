@@ -315,7 +315,7 @@ export class SubjectConceptExtractor {
       SELECT content FROM entries
       WHERE type IN ('fact','methodology','decision','experience')
         AND json_extract(source_json,'$.materialId') = ?
-        AND COALESCE(status,'active') != 'deleted'
+        AND COALESCE(status,'active') = 'active'
       ORDER BY created_at ASC
     `).all(material.id) as Array<{ content: string }>;
 

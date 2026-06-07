@@ -7,7 +7,7 @@
  *   - 跨场景复用性 (cross-scenario reusability): Can it be applied broadly?
  *   - 抽象性 (abstraction level): Is it sufficiently generalized?
  *
- * Entries that fail are marked `pending_review` and excluded from active use.
+ * Entries that fail are marked `pending` and excluded from active use.
  */
 
 import type { KnowledgeEntry } from '../types/index.js';
@@ -152,7 +152,7 @@ export async function runPostExtractAudit(
       const rawResponse = await llm.complete(prompt);
       rawItems = parseAuditResponse(rawResponse);
     } catch (err) {
-      // On LLM failure, mark all entries in batch as pending_review (conservative)
+      // On LLM failure, mark all entries in batch as pending (conservative)
       for (const entry of batch) {
         results.push({
           entryId: entry.id,
@@ -186,7 +186,7 @@ export async function runPostExtractAudit(
           suggestion: item.suggestion,
         });
       } else {
-        // Entry not in LLM response — conservative: mark as pending_review
+        // Entry not in LLM response — conservative: mark as pending
         results.push({
           entryId: entry.id,
           title: entry.title,
@@ -207,7 +207,7 @@ export async function runPostExtractAudit(
 /**
  * Filter entries based on audit results.
  * Returns two arrays: entries that pass (ready for active use) and entries
- * that should be marked as pending_review.
+ * that should be marked as pending.
  */
 export function partitionByAudit(
   entries: KnowledgeEntry[],

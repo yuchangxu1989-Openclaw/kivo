@@ -149,7 +149,7 @@ describe('FR-L02: Analysis Artifact Review & Consumption', () => {
       reviewCandidates: [reviewCandidate],
     }));
 
-    expect(artifact.status).toBe('pending_review');
+    expect(artifact.status).toBe('pending');
 
     const updated = await store.approveCandidate(artifact.id, {
       candidateId: 'claim-1',
@@ -206,7 +206,7 @@ describe('FR-L02: Analysis Artifact Review & Consumption', () => {
       candidateId: 'claim-1',
       action: 'approved',
     });
-    expect(partial.status).toBe('pending_review');
+    expect(partial.status).toBe('pending');
 
     // Approve second
     const complete = await store.approveCandidate(artifact.id, {
@@ -227,7 +227,7 @@ describe('FR-L02: Analysis Artifact Review & Consumption', () => {
       confidence: 0.3,
       reviewCandidates: [],
     }));
-    expect(lowConf.status).toBe('pending_review');
+    expect(lowConf.status).toBe('pending');
 
     const queue = await store.listReviewQueue();
     expect(queue.some(q => q.artifactId === lowConf.id)).toBe(true);
@@ -239,7 +239,7 @@ describe('FR-L02: Analysis Artifact Review & Consumption', () => {
       confidence: 0.99,
       reviewCandidates: [makeReviewCandidate({ candidateId: 'claim-1' })],
     }));
-    expect(artifact.status).toBe('pending_review');
+    expect(artifact.status).toBe('pending');
   });
 
   it('AC4: create research tasks from gap candidates', async () => {

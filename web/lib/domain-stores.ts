@@ -397,9 +397,9 @@ export function deleteDictionaryEntry(id: string): DictionaryData | null {
     const now = new Date().toISOString();
     db.prepare(`
       UPDATE entries
-      SET deleted_at = ?, status = ?, updated_at = ?, version = version + 1
+      SET deleted_at = ?, updated_at = ?, version = version + 1
       WHERE id = ? AND domain = ? AND deleted_at IS NULL
-    `).run(now, 'deleted', now, id, DICTIONARY_DOMAIN);
+    `).run(now, now, id, DICTIONARY_DOMAIN);
 
     appendActivityEvent({ type: 'dictionary_deleted', label: '术语删除', summary: `术语「${target.title}」已从系统字典移除。`, href: '/settings/dictionary', tags: ['governance', 'dictionary'] });
     return getDictionaryData();

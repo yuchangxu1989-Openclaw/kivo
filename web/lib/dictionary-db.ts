@@ -100,7 +100,7 @@ function cleanupGarbageTerms(db: ReturnType<typeof openWebDb>) {
 
   db.prepare(`
     UPDATE entries
-    SET deleted_at = datetime('now'), status = 'deleted', updated_at = datetime('now'), version = version + 1
+    SET deleted_at = datetime('now'), updated_at = datetime('now'), version = version + 1
     WHERE domain = 'system-dictionary'
       AND deleted_at IS NULL
       AND (${needles.map(() => 'instr(lower(title), ?) > 0').join(' OR ')})

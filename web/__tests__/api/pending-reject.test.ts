@@ -1,6 +1,6 @@
 /**
  * Pending Reject Tests — KIVO Wave 1 / C1
- * AC-PENDING-3.1：reject 写 personal_state，entry 保留 pending_review/pending_classification
+ * AC-PENDING-3.1：reject 写 personal_state，entry 保留 pending/pending_classification
  *
  * 覆盖：
  *   - reject 成功：classification_status='pending_classification'，

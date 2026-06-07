@@ -20,7 +20,7 @@ import type { ApiResponse } from '@/types';
 interface ArtifactListItem {
   id: string;
   sourceId: string;
-  status: 'pending_review' | 'approved' | 'rejected' | 'ready';
+  status: 'pending' | 'approved' | 'rejected' | 'ready';
   confidence: number;
   claimsCount: number;
   entityCount: number;
@@ -50,14 +50,14 @@ interface ArtifactDetail extends ArtifactListItem {
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  pending_review: '待审核',
+  pending: '待审核',
   approved: '已通过',
   rejected: '已拒绝',
   ready: '就绪',
 };
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-  pending_review: 'outline',
+  pending: 'outline',
   approved: 'default',
   rejected: 'destructive',
   ready: 'secondary',
@@ -216,7 +216,7 @@ export default function ArtifactsPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">全部状态</SelectItem>
-            <SelectItem value="pending_review">待审核</SelectItem>
+            <SelectItem value="pending">待审核</SelectItem>
             <SelectItem value="approved">已通过</SelectItem>
             <SelectItem value="rejected">已拒绝</SelectItem>
           </SelectContent>

@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS analysis_artifacts (
   id TEXT PRIMARY KEY,
   source_id TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending_review',
+  status TEXT NOT NULL DEFAULT 'pending',
   confidence REAL NOT NULL DEFAULT 0.5,
   claims_count INTEGER NOT NULL DEFAULT 0,
   entity_count INTEGER NOT NULL DEFAULT 0,

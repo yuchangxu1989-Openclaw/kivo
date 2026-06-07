@@ -4,7 +4,7 @@
  * 按 SubjectClassifier 技术设计文档实现：
  *   1. 向量检索 bge-m3 找候选 subject_nodes
  *   2. LLM rerank 确定最终归属 + confidence
- *   3. threshold 分流：≥ 0.7 → classified, < 0.7 → pending_review
+ *   3. threshold 分流：≥ 0.7 → classified, < 0.7 → pending
  *
  * 禁止关键词匹配 / FTS5 / 正则冒充语义理解（N-L01）。
  * 必须用向量检索 + LLM。

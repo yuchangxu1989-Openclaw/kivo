@@ -1,6 +1,6 @@
 /**
  * PATCH /api/v1/knowledge/:id/review
- * Review a pending_review entry: approve, reject, or edit+approve
+ * Review a pending entry: approve, reject, or edit+approve
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -42,7 +42,7 @@ export async function PATCH(
       return notFound(`Knowledge entry not found: ${id}`);
     }
 
-    if ((entry.status as string) !== 'pending_review') {
+    if ((entry.status as string) !== 'pending') {
       return badRequest(`Entry is not pending review (current status: ${entry.status})`);
     }
 

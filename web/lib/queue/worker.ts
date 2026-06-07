@@ -8,7 +8,7 @@
  * AC 覆盖：
  *   AC-CLASSIFY-1.2: 调 SubjectClassifier 得 (subject_id, confidence)
  *   AC-CLASSIFY-2.1: confidence ≥ threshold → entries.status='classified', 写 subject_id
- *   AC-CLASSIFY-2.2: confidence < threshold → entries.status='pending_review', 写 pending_classifications
+ *   AC-CLASSIFY-2.2: confidence < threshold → entries.status='pending', 写 pending_classifications
  *   AC-CLASSIFY-4.1: 失败 retry_count++，达 3 次后 status='failed'
  */
 
@@ -125,7 +125,7 @@ function updateMaterialClassified(
 }
 
 /**
- * 更新 materials 表：低置信度 → pending_review (needs_review)
+ * 更新 materials 表：低置信度 → pending (needs_review)
  * 同时写入 pending_classifications 逻辑表（通过 materials 字段实现）
  */
 function updateMaterialPendingReview(
@@ -552,7 +552,7 @@ export async function executeTask(task: TaskRow): Promise<WorkerResult> {
       };
     }
 
-    // AC-CLASSIFY-2.2: Low confidence → pending_review
+    // AC-CLASSIFY-2.2: Low confidence → pending
     updateMaterialPendingReview(
       db,
       materialId,

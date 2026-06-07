@@ -380,7 +380,7 @@ export interface PostExtractionQualityGovernanceReport {
 
 /**
  * FR-N06: after cron/batch extraction, run LLM quality audit over newly written
- * entries and move low-quality entries to pending_review instead of deleting
+ * entries and move low-quality entries to pending instead of deleting
  * them. The original content remains in entries and the assessment is copied
  * into quality_gate_log.candidate_json for later manual review.
  */
@@ -417,7 +417,7 @@ export async function runPostExtractionQualityGovernance(
 
   report.assessed = assessments.length;
   const entriesById = new Map(rows.map(row => [row.id, row]));
-  const updateStatus = options.db.prepare(`UPDATE entries SET status = 'pending_review', updated_at = ? WHERE id = ?`);
+  const updateStatus = options.db.prepare(`UPDATE entries SET status = 'pending', updated_at = ? WHERE id = ?`);
   const insertEvidence = options.db.prepare(`
     INSERT INTO quality_gate_log (
       entry_id, entry_title, source_reference, decision, reason, message,
@@ -444,7 +444,7 @@ export async function runPostExtractionQualityGovernance(
         'post-extraction-quality-governance',
         'rejected',
         'low_quality_quarantined',
-        `批量萃取后质量审计未通过，已转入 pending_review。评分：${assessment.score.overall}/${threshold}。原因：${assessment.score.rationale}`,
+        `批量萃取后质量审计未通过，已转入 pending。评分：${assessment.score.overall}/${threshold}。原因：${assessment.score.rationale}`,
         null,
         null,
         null,

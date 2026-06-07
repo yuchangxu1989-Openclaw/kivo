@@ -62,7 +62,7 @@ export interface AutoGovernanceSummary {
     executed: boolean;
     assessed: number;
     failing: number;
-    markedStale: number;
+    markedForReview: number;
     skippedReason?: string;
     errors: string[];
   };
@@ -209,7 +209,7 @@ function formatAutoGovernanceSummary(summary: AutoGovernanceSummary): string {
   lines.push(`  Executed: ${summary.decay.executed ? 'yes' : 'no'}`);
   if (summary.decay.report) {
     lines.push(`  Decayed: ${summary.decay.report.decayed}`);
-    lines.push(`  Marked stale: ${summary.decay.report.stalemarked}`);
+    lines.push(`  Marked for review: ${summary.decay.report.reviewMarked}`);
   }
   if (summary.decay.error) {
     lines.push(`  Error: ${summary.decay.error}`);
@@ -279,7 +279,7 @@ function formatAutoGovernanceSummary(summary: AutoGovernanceSummary): string {
   } else if (summary.behavioral.executed) {
     lines.push(`  Assessed: ${summary.behavioral.assessed}`);
     lines.push(`  Failing: ${summary.behavioral.failing}`);
-    lines.push(`  Marked stale: ${summary.behavioral.markedStale}`);
+    lines.push(`  Marked for review: ${summary.behavioral.markedForReview}`);
   }
   if (summary.behavioral.errors.length > 0) {
     for (const err of summary.behavioral.errors.slice(0, 5)) {
@@ -360,7 +360,7 @@ export async function runAutoGovernance(options: AutoGovernanceOptions = {}): Pr
       executed: false,
       assessed: 0,
       failing: 0,
-      markedStale: 0,
+      markedForReview: 0,
       errors: [],
     },
     quality: {
@@ -455,7 +455,7 @@ export async function runAutoGovernance(options: AutoGovernanceOptions = {}): Pr
 
             let assessed = 0;
             let failing = 0;
-            let markedStale = 0;
+            let markedForReview = 0;
             const errors: string[] = [];
 
             for (const entry of entriesToTest) {
@@ -474,11 +474,11 @@ export async function runAutoGovernance(options: AutoGovernanceOptions = {}): Pr
 
                 if (parsed.passes === false) {
                   failing++;
-                  // Mark as stale in DB
+                  // Current lifecycle states route failing entries through review.
                   const now = new Date().toISOString();
                   db.prepare('UPDATE entries SET status = ?, updated_at = ? WHERE id = ?')
-                    .run('stale', now, entry.id);
-                  markedStale++;
+                    .run('pending', now, entry.id);
+                  markedForReview++;
                 }
 
                 // Rate limit
@@ -491,7 +491,7 @@ export async function runAutoGovernance(options: AutoGovernanceOptions = {}): Pr
             summary.behavioral.executed = true;
             summary.behavioral.assessed = assessed;
             summary.behavioral.failing = failing;
-            summary.behavioral.markedStale = markedStale;
+            summary.behavioral.markedForReview = markedForReview;
             summary.behavioral.errors = errors;
           }
         } catch (error) {
