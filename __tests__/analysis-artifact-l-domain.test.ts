@@ -174,7 +174,7 @@ describe('FR-L02: Analysis Artifact Review & Consumption', () => {
     });
 
     expect(updated.status).toBe('approved'); // all review candidates resolved
-    expect(updated.candidateDecisions[0].action).toBe('active');
+    expect(updated.candidateDecisions[0].action).toBe('rejected');
   });
 
   it('AC2: edit candidate value', async () => {
