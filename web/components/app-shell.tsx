@@ -35,7 +35,7 @@ const navItems: NavItem[] = [
   { href: '/graph', label: '知识图谱', icon: Network },
   { href: '/library', label: '材料库', icon: FolderInput },
   { href: '/research', label: '调研队列', icon: Telescope },
-  { href: '/activity', label: '系统(操作日志)', icon: Activity },
+  { href: '/activity', label: '操作日志', icon: Activity },
   { href: '/audit', label: '操作审计', icon: ShieldCheck },
   { href: '/settings/security', label: '设置', icon: Settings },
 ];

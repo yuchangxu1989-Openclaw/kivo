@@ -8,7 +8,8 @@ import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getKivo, getRepository } from '@/lib/kivo-engine';
 import { badRequest, serverError } from '@/lib/errors';
-import { findEntriesPaginated } from '@/lib/paginated-queries';
+import { findEntriesPaginated, setEntryWhy } from '@/lib/paginated-queries';
+import { lookupRejectReason } from '@/lib/quality-gate-reason';
 import type { ApiResponse } from '@/types';
 import type { KnowledgeEntry, KnowledgeType, EntryStatus } from '@self-evolving-harness/kivo';
 
@@ -23,7 +24,7 @@ type CoreSourceRange = {
 type KnowledgeEntryWithSourceRange = KnowledgeEntry & { sourceRange?: CoreSourceRange };
 
 const VALID_TYPES: KnowledgeType[] = ['fact', 'methodology', 'decision', 'experience', 'meta'];
-const VALID_STATUSES: EntryStatus[] = ['active'];
+const VALID_STATUSES: EntryStatus[] = ['pending', 'active', 'rejected', 'superseded', 'conflicted'];
 
 function buildSummary(content: string, fallback?: string) {
   const trimmedFallback = fallback?.trim();
@@ -83,6 +84,9 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status') || undefined;
     const includeAll = searchParams.get('includeAll') === 'true';
     const domain = searchParams.get('domain') || undefined;
+    const nature = searchParams.get('nature') || undefined;
+    const functionTag = searchParams.get('functionTag') || undefined;
+    const knowledgeDomain = searchParams.get('knowledgeDomain') || undefined;
     const sort = searchParams.get('sort') || 'updatedAt';
     const source = searchParams.get('source') || undefined;
     const from = searchParams.get('from') || undefined;
@@ -106,6 +110,9 @@ export async function GET(request: NextRequest) {
       status: status || undefined,
       domain: domain || undefined,
       source: source || undefined,
+      nature: nature || undefined,
+      functionTag: functionTag || undefined,
+      knowledgeDomain: knowledgeDomain || undefined,
       from: from || undefined,
       to: to || undefined,
       sort,
@@ -134,6 +141,7 @@ export async function POST(request: NextRequest) {
     const type = typeof body?.type === 'string' ? body.type : 'fact';
     const domain = typeof body?.domain === 'string' ? body.domain.trim() : '';
     const summary = typeof body?.summary === 'string' ? body.summary : undefined;
+    const why = typeof body?.why === 'string' ? body.why.trim() : '';
     const sourceDocument = typeof body?.sourceDocument === 'string' ? body.sourceDocument.trim() : '';
     const sourceLocation = typeof body?.sourceLocation === 'string' ? body.sourceLocation.trim() : '';
 
@@ -194,11 +202,17 @@ export async function POST(request: NextRequest) {
 
     const saved = await repo.save(entry);
     if (!saved) {
-      return badRequest('质量门禁拒绝入库，请检查内容是否重复或低价值。');
+      // repo.save() 只回 boolean——反查门禁日志，给用户讲清为什么没入库（不暴露内部术语）。
+      const reason = lookupRejectReason(entry.id);
+      return badRequest(reason.message, { rejectCode: reason.code, matchedTitle: reason.matchedTitle });
+    }
+
+    if (why) {
+      setEntryWhy(entry.id, why);
     }
 
     const response: ApiResponse<KnowledgeEntry> = {
-      data: entry,
+      data: { ...entry, ...(why ? { why } : {}) } as KnowledgeEntry,
     };
 
     return NextResponse.json(response, { status: 201 });

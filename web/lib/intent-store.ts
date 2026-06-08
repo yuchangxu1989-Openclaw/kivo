@@ -77,6 +77,7 @@ export function ensureIntentTables(conn: Database.Database): void {
   if (!colNames.has('description')) conn.exec(`ALTER TABLE intents ADD COLUMN description TEXT NOT NULL DEFAULT ''`);
   if (!colNames.has('positives_json')) conn.exec(`ALTER TABLE intents ADD COLUMN positives_json TEXT NOT NULL DEFAULT '[]'`);
   if (!colNames.has('negatives_json')) conn.exec(`ALTER TABLE intents ADD COLUMN negatives_json TEXT NOT NULL DEFAULT '[]'`);
+  if (!colNames.has('similar_sentences_json')) conn.exec(`ALTER TABLE intents ADD COLUMN similar_sentences_json TEXT NOT NULL DEFAULT '[]'`);
   if (!colNames.has('embedding')) conn.exec(`ALTER TABLE intents ADD COLUMN embedding BLOB`);
   if (!colNames.has('status')) conn.exec(`ALTER TABLE intents ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`);
   if (!colNames.has('hit_count')) conn.exec(`ALTER TABLE intents ADD COLUMN hit_count INTEGER NOT NULL DEFAULT 0`);

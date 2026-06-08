@@ -70,7 +70,9 @@ export function QuickCreateModal({
   const [type, setType] = useState<KnowledgeType>('fact');
   const [domain, setDomain] = useState('');
   const [tags, setTags] = useState<string[]>([]);
+  const [why, setWhy] = useState('');
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const canSave = useMemo(() => title.trim().length > 0 && content.trim().length > 0, [title, content]);
 
@@ -80,7 +82,9 @@ export function QuickCreateModal({
     setType('fact');
     setDomain('');
     setTags([]);
+    setWhy('');
     setSaving(false);
+    setSaveError(null);
   }
 
   function handleOpenChange(nextOpen: boolean) {
@@ -115,6 +119,7 @@ export function QuickCreateModal({
     if (!canSave || saving) return;
 
     setSaving(true);
+    setSaveError(null);
     try {
       await apiFetch('/api/v1/knowledge', {
         method: 'POST',
@@ -126,6 +131,7 @@ export function QuickCreateModal({
           confidence: 0.85,
           summary: buildSummary(content),
           metadata: tags.length > 0 ? { tags } : undefined,
+          why: why.trim() || undefined,
         }),
       });
 
@@ -135,6 +141,7 @@ export function QuickCreateModal({
       toast.success('知识条目已创建');
     } catch (error) {
       const message = error instanceof Error ? error.message : '创建知识条目失败';
+      setSaveError(message);
       toast.error(message);
       setSaving(false);
     }
@@ -185,6 +192,18 @@ export function QuickCreateModal({
               />
             </div>
 
+            <div className="space-y-2">
+              <label htmlFor="quick-create-why" className="text-sm font-medium text-slate-700">为什么记录</label>
+              <Textarea
+                id="quick-create-why"
+                value={why}
+                onChange={(event) => setWhy(event.target.value)}
+                placeholder="说明这条知识的来源、用途或保留原因..."
+                rows={3}
+                className="min-h-[96px]"
+              />
+            </div>
+
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-slate-700">类型</label>
@@ -224,13 +243,24 @@ export function QuickCreateModal({
             </div>
           </div>
 
-          <DialogFooter className="mt-6">
-            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={saving}>
-              取消
-            </Button>
-            <Button type="button" onClick={handleSave} disabled={!canSave || saving}>
-              {saving ? '保存中…' : '保存'}
-            </Button>
+          <DialogFooter className="mt-6 flex-col gap-3 sm:flex-col sm:items-stretch">
+            {saveError && (
+              <div
+                role="alert"
+                className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+                data-testid="quick-create-error"
+              >
+                {saveError}
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={saving}>
+                取消
+              </Button>
+              <Button type="button" onClick={handleSave} disabled={!canSave || saving}>
+                {saving ? '保存中…' : saveError ? '重新保存' : '保存'}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

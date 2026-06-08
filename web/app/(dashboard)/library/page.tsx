@@ -271,7 +271,7 @@ function ServerMaterialCard({ material, onDelete, onReprocess }: ServerMaterialC
           status: cardStatus,
           createdAt: material.createdAt,
         } satisfies MaterialCardMaterial & { createdAt: string }}
-        onDetail={() => window.location.href = `/library/${material.id}`}
+        onDetail={() => window.location.href = withBasePath(`/library/${material.id}`)}
         onDelete={() => onDelete(material)}
       />
       {material.pipelineStatus === 'failed' && material.errorMessage && (

@@ -1049,6 +1049,9 @@ export function KnowledgeGraphView({
               <g
                 key={node.id}
                 data-node-id={node.id}
+                role="button"
+                tabIndex={-1}
+                aria-label={`${node.title}（${typeLabel(node.type)}）`}
                 transform="translate(0,0)"
                 style={{ cursor: onCreateLink ? 'crosshair' : 'pointer' }}
                 onPointerEnter={(e) => {

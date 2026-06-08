@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApi } from '@/hooks/use-api';
+import { withBasePath } from '@/lib/client-api';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -105,7 +106,7 @@ export default function ActivityPage() {
     function startSSE() {
       if (cancelled) return;
       setConnectionState(reconnectAttemptRef.current > 0 ? 'reconnecting' : 'connected');
-      eventSource = new EventSource(`/api/v1/activity/stream?type=${apiFilterParam}`);
+      eventSource = new EventSource(withBasePath(`/api/v1/activity/stream?type=${apiFilterParam}`));
       eventSource.onmessage = (event) => {
         if (cancelled) return;
         try {
@@ -262,7 +263,7 @@ export default function ActivityPage() {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-2">
           <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-950">动态</h1>
+            <h1 className="text-3xl font-semibold tracking-tight text-slate-950">操作日志</h1>
             <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-muted-foreground">
               实时推送
             </span>

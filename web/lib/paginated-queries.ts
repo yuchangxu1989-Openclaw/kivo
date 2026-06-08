@@ -21,10 +21,29 @@ type CoreSourceRange = {
   originalText: string;
 };
 
-type KnowledgeEntry = CoreKnowledgeEntry & { sourceRange?: CoreSourceRange };
+type KnowledgeEntry = CoreKnowledgeEntry & { sourceRange?: CoreSourceRange; why?: string };
 
 let db: Database.Database | null = null;
 let dbPath: string | null = null;
+
+/**
+ * Idempotent additive migration: ensure the entries table carries the `why`
+ * column (FR-A05 AC-A05-7 — every entry must record why it exists). Existing
+ * rows keep why=NULL; the Web UI renders a muted placeholder for them, so the
+ * change is fully backward-compatible. Mirrors the in-web migration pattern in
+ * intent-store.ts:ensureIntentTables — keeps the schema change inside web/.
+ */
+function ensureEntriesColumns(conn: Database.Database): void {
+  const table = conn
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='entries'")
+    .get() as { name: string } | undefined;
+  if (!table) return;
+  const columns = conn.prepare('PRAGMA table_info(entries)').all() as Array<{ name: string }>;
+  const colNames = new Set(columns.map((column) => column.name));
+  if (!colNames.has('why')) {
+    conn.exec('ALTER TABLE entries ADD COLUMN why TEXT');
+  }
+}
 
 function getDb(): Database.Database {
   const nextPath = resolveKivoDbPath();
@@ -33,6 +52,7 @@ function getDb(): Database.Database {
     db = new Database(nextPath);
     dbPath = nextPath;
     db.pragma('journal_mode = WAL');
+    ensureEntriesColumns(db);
   }
   return db;
 }
@@ -54,6 +74,7 @@ interface EntryRow {
   nature: string | null;
   function_tag: string | null;
   knowledge_domain: string | null;
+  why: string | null;
   metadata_json: string | null;
   created_at: string;
   updated_at: string;
@@ -95,6 +116,7 @@ function rowToEntry(row: EntryRow): KnowledgeEntry {
     nature: (row.nature ?? undefined) as KnowledgeNature | undefined,
     functionTag: (row.function_tag ?? undefined) as KnowledgeFunction | undefined,
     knowledgeDomain: row.knowledge_domain ?? undefined,
+    why: row.why ?? undefined,
     metadata: metadata as KnowledgeEntry['metadata'],
     sourceRange: metadata?.sourceRange as CoreSourceRange | undefined,
     createdAt: new Date(row.created_at),
@@ -107,6 +129,9 @@ export interface PaginatedOptions {
   status?: string;
   domain?: string;
   source?: string;
+  nature?: string;
+  functionTag?: string;
+  knowledgeDomain?: string;
   from?: string;   // ISO date string
   to?: string;     // ISO date string
   sort?: string;    // e.g. '-updatedAt', 'createdAt', '-confidence'
@@ -163,6 +188,18 @@ export function findEntriesPaginated(opts: PaginatedOptions): PaginatedResult<Kn
   if (opts.source) {
     conditions.push('LOWER(source_json) LIKE ?');
     params.push(`%${opts.source.toLowerCase()}%`);
+  }
+  if (opts.nature) {
+    conditions.push('nature = ?');
+    params.push(opts.nature);
+  }
+  if (opts.functionTag) {
+    conditions.push('function_tag = ?');
+    params.push(opts.functionTag);
+  }
+  if (opts.knowledgeDomain) {
+    conditions.push('knowledge_domain = ?');
+    params.push(opts.knowledgeDomain);
   }
   if (opts.from) {
     conditions.push('created_at >= ?');
@@ -265,6 +302,45 @@ export function countEntriesInWindow(fromDate: string, toDate?: string): number 
     'SELECT COUNT(*) as cnt FROM entries WHERE created_at >= ? AND type IN (' + KNOWLEDGE_TYPE_VALUES.map(() => '?').join(', ') + ')'
   ).get(fromDate, ...KNOWLEDGE_TYPE_VALUES) as { cnt: number };
   return row.cnt;
+}
+
+/**
+ * Distinct non-empty values for the three-dimensional filters (FR-B05 / AC-B05-6).
+ * Returns only values that actually exist among active knowledge entries, so the
+ * UI never hardcodes subject/domain names. Excludes wiki/intent rows.
+ */
+export function getKnowledgeFacets(): {
+  natures: string[];
+  functionTags: string[];
+  domains: string[];
+} {
+  const d = getDb();
+  const typePlaceholders = KNOWLEDGE_TYPE_VALUES.map(() => '?').join(', ');
+  const distinct = (column: string): string[] => {
+    const rows = d.prepare(
+      `SELECT DISTINCT ${column} AS value FROM entries
+       WHERE status = 'active' AND ${column} IS NOT NULL AND TRIM(${column}) != ''
+         AND type IN (${typePlaceholders})
+       ORDER BY value`
+    ).all(...KNOWLEDGE_TYPE_VALUES) as Array<{ value: string }>;
+    return rows.map((r) => r.value);
+  };
+  return {
+    natures: distinct('nature'),
+    functionTags: distinct('function_tag'),
+    domains: distinct('knowledge_domain'),
+  };
+}
+
+/**
+ * Persist the `why` field for an entry (FR-A05 AC-A05-7). Separate from
+ * repo.save() because the core StorageProvider SPI does not yet carry `why`;
+ * the column is web-managed. No-op when value is empty.
+ */
+export function setEntryWhy(id: string, why: string): void {
+  const value = why.trim();
+  if (!value) return;
+  getDb().prepare('UPDATE entries SET why = ? WHERE id = ?').run(value, id);
 }
 
 export function getActiveTypeCounts(): Record<string, number> {

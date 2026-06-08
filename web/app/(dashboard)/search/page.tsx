@@ -49,11 +49,51 @@ interface SearchResult {
   id: string;
   type: string;
   status: string;
+  title?: string;
+  summary?: string;
   content: string;
   score: number;
   createdAt?: string;
   highlights?: string[];
-  metadata?: { tags?: string[] };
+  metadata?: { tags?: string[]; knowledgeDomain?: string };
+  source?: { reference?: string; type?: string };
+}
+
+interface SearchSuggestion {
+  id: string;
+  title: string;
+  type: string;
+}
+
+type SearchTab = 'all' | 'domain' | 'intent' | 'material';
+
+const SEARCH_TABS: { value: SearchTab; label: string }[] = [
+  { value: 'all', label: '全部' },
+  { value: 'domain', label: '领域知识' },
+  { value: 'intent', label: '意图知识' },
+  { value: 'material', label: '材料' },
+];
+
+const DOMAIN_TYPES = new Set(['fact', 'methodology', 'decision', 'experience', 'meta', 'wiki_page', 'wiki_space']);
+
+/** Classify a result into one of the search tabs by its knowledge type / source. */
+function classifyResult(r: SearchResult): SearchTab {
+  if (r.type === 'intent') return 'intent';
+  if (r.type?.startsWith('material') || r.source?.type === 'document') return 'material';
+  if (DOMAIN_TYPES.has(r.type)) return 'domain';
+  return 'domain';
+}
+
+
+function resultHref(result: SearchResult): string {
+  if (classifyResult(result) === 'material') return `/wiki/materials?material=${encodeURIComponent(result.id)}`;
+  return `/knowledge/${encodeURIComponent(result.id)}`;
+}
+/** Relevance tier (高/中/低) derived from the cosine score — spec FR-W02 step 3. */
+function relevanceTier(score: number): { label: string; className: string } {
+  if (score >= 0.75) return { label: '相关度高', className: 'border-emerald-200 bg-emerald-50 text-emerald-700' };
+  if (score >= 0.5) return { label: '相关度中', className: 'border-amber-200 bg-amber-50 text-amber-700' };
+  return { label: '相关度低', className: 'border-slate-200 bg-slate-50 text-slate-600' };
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -142,6 +182,8 @@ export default function SearchPage() {
   const [type, setType] = useState('all-types');
   const [status, setStatus] = useState('all-statuses');
   const [timeRange, setTimeRange] = useState('all');
+  const [knowledgeDomain, setKnowledgeDomain] = useState('all-domains');
+  const [activeTab, setActiveTab] = useState<SearchTab>('all');
   const [minConfidence, setMinConfidence] = useState(0);
   const [tagsInput, setTagsInput] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -186,10 +228,23 @@ export default function SearchPage() {
     search.set('rid', String(searchNonce));
     if (type !== 'all-types') search.set('type', type);
     if (status !== 'all-statuses') search.set('status', status);
+    if (knowledgeDomain !== 'all-domains') search.set('knowledgeDomain', knowledgeDomain);
     return `/api/v1/search?${search.toString()}`;
-  }, [submitted, type, status, searchNonce]);
+  }, [submitted, type, status, knowledgeDomain, searchNonce]);
+
+  const suggestionParams = useMemo(() => {
+    const trimmed = query.trim();
+    if (trimmed.length < 2) return null;
+    const search = new URLSearchParams();
+    search.set('q', trimmed);
+    search.set('suggest', '1');
+    return `/api/v1/search?${search.toString()}`;
+  }, [query]);
 
   const { data, isLoading, error, mutate, isValidating } = useApi<ApiResponse<SearchResult[]>>(params);
+  const { data: suggestionData } = useApi<ApiResponse<SearchSuggestion[]>>(suggestionParams, {
+    keepPreviousData: true,
+  });
 
   useEffect(() => {
     if (!submitted) {
@@ -244,6 +299,17 @@ export default function SearchPage() {
     return filtered;
   }, [data, minConfidence, timeRange, filterTags]);
 
+  const tabCounts = useMemo(() => {
+    const counts: Record<SearchTab, number> = { all: results.length, domain: 0, intent: 0, material: 0 };
+    for (const r of results) counts[classifyResult(r)] += 1;
+    return counts;
+  }, [results]);
+
+  const tabbedResults = useMemo(() => {
+    if (activeTab === 'all') return results;
+    return results.filter((r) => classifyResult(r) === activeTab);
+  }, [results, activeTab]);
+
   const executeSearch = useCallback((term: string) => {
     const normalized = term.trim();
     if (!normalized) return;
@@ -258,6 +324,8 @@ export default function SearchPage() {
     setActiveHistoryIndex(-1);
   }, []);
 
+  const suggestions = useMemo(() => suggestionData?.data ?? [], [suggestionData]);
+
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
@@ -267,10 +335,10 @@ export default function SearchPage() {
   );
 
   const handleCopyLink = useCallback(
-    (id: string) => {
-      const url = `${window.location.origin}/knowledge/${id}`;
+    (result: SearchResult) => {
+      const url = `${window.location.origin}${resultHref(result)}`;
       navigator.clipboard.writeText(url).then(() => {
-        setCopiedId(id);
+        setCopiedId(result.id);
         setTimeout(() => setCopiedId(null), 2000);
       });
     },
@@ -318,20 +386,20 @@ export default function SearchPage() {
         }
         return;
       }
-      if (!results.length) return;
+      if (!tabbedResults.length) return;
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setActiveResultIndex((prev) => (prev < results.length - 1 ? prev + 1 : 0));
+        setActiveResultIndex((prev) => (prev < tabbedResults.length - 1 ? prev + 1 : 0));
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setActiveResultIndex((prev) => (prev > 0 ? prev - 1 : results.length - 1));
+        setActiveResultIndex((prev) => (prev > 0 ? prev - 1 : tabbedResults.length - 1));
       } else if (e.key === 'Enter' && activeResultIndex >= 0 && !(e.nativeEvent as unknown as { isComposing?: boolean }).isComposing) {
         e.preventDefault();
-        const target = results[activeResultIndex];
-        if (target) router.push(`/knowledge/${target.id}`);
+        const target = tabbedResults[activeResultIndex];
+        if (target) router.push(resultHref(target));
       }
     },
-    [results, activeResultIndex, showHistory, searchHistory, activeHistoryIndex, router, handleHistorySelect],
+    [tabbedResults, activeResultIndex, showHistory, searchHistory, activeHistoryIndex, router, handleHistorySelect],
   );
 
   return (
@@ -392,6 +460,25 @@ export default function SearchPage() {
                   ))}
                 </div>
               )}
+              {query.trim().length >= 2 && suggestions.length > 0 && !isFocus && (
+                <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-xl border border-slate-200 bg-white shadow-lg">
+                  <div className="flex items-center justify-between px-4 py-2 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1"><Sparkles className="h-3 w-3" />搜索建议</span>
+                    <span className="text-[10px]">来自已有标题</span>
+                  </div>
+                  {suggestions.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="flex w-full items-center justify-between gap-3 px-4 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50"
+                      onClick={() => executeSearch(item.title)}
+                    >
+                      <span className="truncate">{item.title}</span>
+                      <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">{typeLabel(item.type)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <Button
               type="submit"
@@ -433,7 +520,7 @@ export default function SearchPage() {
 
             {showAdvanced && (
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                   <Select value={status} onValueChange={setStatus}>
                     <SelectTrigger className="h-10" aria-label="按知识状态过滤搜索结果"><SelectValue placeholder="全部状态" /></SelectTrigger>
                     <SelectContent>
@@ -447,6 +534,7 @@ export default function SearchPage() {
                       {KNOWLEDGE_TYPE_CHIPS.map((chip) => <SelectItem key={chip.value} value={chip.value}>{chip.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
+                  <Input className="h-10" placeholder="知识域筛选" value={knowledgeDomain === 'all-domains' ? '' : knowledgeDomain} onChange={(e) => setKnowledgeDomain(e.target.value.trim() || 'all-domains')} aria-label="按知识域筛选" />
                   <div className="flex items-center gap-2 rounded-xl border border-slate-200 px-3">
                     <Clock className="h-3.5 w-3.5 text-slate-400" />
                     <select value={timeRange} onChange={(e) => setTimeRange(e.target.value)} className="h-10 flex-1 bg-transparent text-sm text-slate-700 outline-none" aria-label="时间范围">
@@ -504,34 +592,61 @@ export default function SearchPage() {
         <EmptyState
           icon={SearchIcon}
           title={`未找到与"${submitted}"相关的结果`}
-          description={'试试换成更明确的主题名称、操作场景或领域术语，例如"创建知识库""关联条目""导入流程"。'}
-          primaryAction={{ label: '查看知识库', href: '/knowledge' }}
-          secondaryAction={{ label: '查看知识库', href: '/knowledge', variant: 'outline' }}
+          description={'试试换成更明确的主题名称、操作场景或领域术语；也可以上传材料或发起调研补齐空白。'}
+          primaryAction={{ label: '上传材料', href: '/wiki/materials' }}
+          secondaryAction={{ label: '发起调研', href: '/research', variant: 'outline' }}
         />
       )}
-
       {/* Results list */}
       {!error && results.length > 0 && (
         <div className="space-y-3">
+          {/* Tab bar — 全部 / 领域知识 / 意图知识 / 材料 (FR-W02) */}
+          <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
+            {SEARCH_TABS.map((tab) => (
+              <button
+                key={tab.value}
+                type="button"
+                onClick={() => { setActiveTab(tab.value); setActiveResultIndex(-1); }}
+                className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${activeTab === tab.value ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                aria-pressed={activeTab === tab.value}
+              >
+                {tab.label}
+                <span className={`ml-1.5 text-xs ${activeTab === tab.value ? 'text-indigo-100' : 'text-slate-400'}`}>{tabCounts[tab.value]}</span>
+              </button>
+            ))}
+          </div>
           <p className="text-sm text-muted-foreground">
-            找到 {data?.meta?.total ?? results.length} 条结果
+            找到 {tabbedResults.length} 条结果
             {minConfidence > 0 && (
               <span className="ml-1">
-                （置信度 ≥ {minConfidence}% 过滤后 {results.length} 条）
+                （置信度 ≥ {minConfidence}% 过滤后）
               </span>
             )}
             <span className="ml-2 text-xs text-slate-500">↑↓ 导航 · Enter 打开</span>
           </p>
-          {results.map((result, idx) => (
+          {tabbedResults.length === 0 ? (
+            <EmptyState
+              icon={SearchIcon}
+              title="该分类下暂无结果"
+              description="切换到「全部」或其他分类查看更多结果。"
+            />
+          ) : tabbedResults.map((result, idx) => (
             <div
               key={result.id}
               className={`group relative rounded-[24px] border p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md ${idx === activeResultIndex ? 'border-indigo-300 bg-indigo-50/50 ring-2 ring-indigo-200' : 'border-slate-200 bg-white/95'}`}
             >
               <div className="flex items-start justify-between gap-3">
                 <Link
-                  href={`/knowledge/${result.id}`}
+                  href={resultHref(result)}
                   className="min-w-0 flex-1 space-y-2"
                 >
+                  {/* Title (keyword highlighted) */}
+                  {result.title?.trim() && (
+                    <h3
+                      className="text-base font-semibold leading-6 text-slate-900 [&_mark]:rounded-sm [&_mark]:bg-amber-200 [&_mark]:px-0.5"
+                      dangerouslySetInnerHTML={{ __html: highlightText(result.title.trim(), submitted) }}
+                    />
+                  )}
                   {/* Content with keyword highlighting and context snippet */}
                   {result.highlights?.length ? (
                     <p
@@ -565,7 +680,7 @@ export default function SearchPage() {
                   )}
 
                   {/* Meta badges */}
-                  <div className="flex items-center gap-2 pt-1">
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
                     <Badge
                       variant="secondary"
                       className="border-indigo-100 bg-indigo-50 text-indigo-700"
@@ -578,6 +693,14 @@ export default function SearchPage() {
                     >
                       {statusLabel(result.status)}
                     </Badge>
+                    <Badge variant="outline" className={relevanceTier(result.score).className}>
+                      {relevanceTier(result.score).label}
+                    </Badge>
+                    {result.source?.reference && (
+                      <span className="truncate text-[11px] text-muted-foreground" title={result.source.reference}>
+                        来源: {result.source.reference}
+                      </span>
+                    )}
                     {result.createdAt && (
                       <span className="text-[11px] text-muted-foreground">
                         {new Date(result.createdAt).toLocaleDateString('zh-CN')}
@@ -587,18 +710,9 @@ export default function SearchPage() {
                   <p className="text-xs text-slate-500">命中原因：基于向量语义匹配与知识类型综合排序。</p>
                 </Link>
 
-                {/* Score + Actions */}
                 <div className="flex items-start gap-2 shrink-0">
-                  <div className="rounded-2xl bg-slate-50 px-3 py-2 text-right">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                      置信度
-                    </p>
-                    <p className="text-base font-semibold text-slate-900">
-                      {(result.score * 100).toFixed(0)}%
-                    </p>
-                  </div>
 
-                  {/* Action menu */}
+
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <button
@@ -610,7 +724,7 @@ export default function SearchPage() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-48">
                       <DropdownMenuItem
-                        onClick={() => router.push(`/knowledge/${result.id}`)}
+                        onClick={() => router.push(resultHref(result))}
                         className="gap-2 cursor-pointer"
                       >
                         <ExternalLink className="h-3.5 w-3.5" />
@@ -625,7 +739,7 @@ export default function SearchPage() {
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
-                        onClick={() => handleCopyLink(result.id)}
+                        onClick={() => handleCopyLink(result)}
                         className="gap-2 cursor-pointer"
                       >
                         {copiedId === result.id ? (

@@ -78,6 +78,11 @@ const nextConfig = {
         permanent: false,
       },
       {
+        source: '/logs',
+        destination: '/activity',
+        permanent: false,
+      },
+      {
         source: '/rules',
         destination: '/analytics/dispatch',
         permanent: false,

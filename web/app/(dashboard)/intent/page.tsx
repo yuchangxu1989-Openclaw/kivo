@@ -1,12 +1,14 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Brain, CheckCircle2, Plus, Search, ShieldAlert, Trash2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Brain, Plus, Search, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useApi } from '@/hooks/use-api';
 import { apiFetch } from '@/lib/client-api';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { EmptyState, ErrorState, ListPageSkeleton } from '@/components/ui/page-states';
@@ -18,6 +20,7 @@ interface IntentItem {
   description: string;
   positives: string[];
   negatives: string[];
+  similarSentences: string[];
   relatedEntryCount: number;
   recentHitCount: number;
   recentSnippets: { id: string; excerpt: string; hitAt: string }[];
@@ -33,56 +36,76 @@ function splitLines(value: string) {
   return value.split('\n').map((line) => line.trim()).filter(Boolean);
 }
 
-function IntentCard({ item, onDelete }: { item: IntentItem; onDelete: (id: string) => void }) {
+function IntentRow({ item, onNavigate, onDelete }: { item: IntentItem; onNavigate: (id: string) => void; onDelete: (item: IntentItem) => void }) {
   return (
-    <Card className="border-2 border-rose-200 bg-white shadow-sm">
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-2">
-            <Badge className="border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-50">意图知识</Badge>
-            <CardTitle className="text-lg text-slate-950">{item.name}</CardTitle>
-          </div>
-          <button
-            type="button"
-            onClick={() => onDelete(item.id)}
-            className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
-            aria-label={`删除 ${item.name}`}
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <p className="text-sm leading-6 text-slate-700">{item.description}</p>
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
-            <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-emerald-700"><CheckCircle2 className="h-4 w-4" />正例</div>
-            {item.positives.length > 0 ? (
-              <ul className="space-y-1 text-sm text-slate-700">
-                {item.positives.map((line) => <li key={line}>· {line}</li>)}
-              </ul>
-            ) : <p className="text-sm text-slate-500">暂无正例</p>}
-          </div>
-          <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3">
-            <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-amber-700"><ShieldAlert className="h-4 w-4" />负例</div>
-            {item.negatives.length > 0 ? (
-              <ul className="space-y-1 text-sm text-slate-700">
-                {item.negatives.map((line) => <li key={line}>· {line}</li>)}
-              </ul>
-            ) : <p className="text-sm text-slate-500">暂无负例</p>}
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-          <span>命中 {item.recentHitCount} 次</span>
-          <span>更新 {item.updatedAt}</span>
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">独立 intents 表</span>
-        </div>
-      </CardContent>
-    </Card>
+    <tr
+      role="button"
+      tabIndex={0}
+      onClick={() => onNavigate(item.id)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onNavigate(item.id);
+        }
+      }}
+      className="cursor-pointer border-b border-slate-100 transition-colors hover:bg-rose-50/40 focus:outline-none focus-visible:bg-rose-50/60"
+    >
+      <td className="max-w-[200px] px-4 py-3">
+        <span className="block truncate font-medium text-slate-900" title={item.name}>{item.name}</span>
+      </td>
+      <td className="max-w-[320px] px-4 py-3">
+        <span className="block truncate text-sm text-slate-600" title={item.description}>{item.description}</span>
+      </td>
+      <td className="px-4 py-3 text-center text-sm text-emerald-700">{item.positives.length}</td>
+      <td className="px-4 py-3 text-center text-sm text-rose-700">{item.negatives.length}</td>
+      <td className="hidden px-4 py-3 text-center text-sm text-indigo-700 md:table-cell">{item.similarSentences.length}</td>
+      <td className="hidden px-4 py-3 text-center text-sm text-slate-600 sm:table-cell">{item.recentHitCount}</td>
+      <td className="hidden whitespace-nowrap px-4 py-3 text-sm text-slate-500 lg:table-cell">{item.updatedAt}</td>
+      <td className="w-12 px-4 py-3 text-right">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete(item);
+          }}
+          className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
+          aria-label={`删除 ${item.name}`}
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+function IntentTable({ items, onNavigate, onDelete }: { items: IntentItem[]; onNavigate: (id: string) => void; onDelete: (item: IntentItem) => void }) {
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-slate-100 bg-slate-50/80 text-left text-xs font-medium text-slate-600">
+            <th className="px-4 py-3">名称</th>
+            <th className="px-4 py-3">描述</th>
+            <th className="px-4 py-3 text-center">正例</th>
+            <th className="px-4 py-3 text-center">负例</th>
+            <th className="hidden px-4 py-3 text-center md:table-cell">相似句</th>
+            <th className="hidden px-4 py-3 text-center sm:table-cell">命中</th>
+            <th className="hidden px-4 py-3 lg:table-cell">更新时间</th>
+            <th className="w-12 px-4 py-3" />
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => (
+            <IntentRow key={item.id} item={item} onNavigate={onNavigate} onDelete={onDelete} />
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
 export default function IntentPage() {
+  const router = useRouter();
   const { data, isLoading, error, mutate } = useApi<ApiResponse<IntentData>>('/api/v1/intent/list');
   const [query, setQuery] = useState('');
   const [name, setName] = useState('');
@@ -90,6 +113,8 @@ export default function IntentPage() {
   const [positives, setPositives] = useState('');
   const [negatives, setNegatives] = useState('');
   const [saving, setSaving] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<IntentItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const items = data?.data?.items ?? [];
   const filtered = useMemo(() => {
@@ -111,14 +136,27 @@ export default function IntentPage() {
       setPositives('');
       setNegatives('');
       await mutate();
+      toast.success('意图已保存');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '保存失败');
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleDelete(id: string) {
-    await apiFetch(`/api/v1/intent?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
-    await mutate();
+  async function handleConfirmDelete() {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    try {
+      await apiFetch(`/api/v1/intent?id=${encodeURIComponent(pendingDelete.id)}`, { method: 'DELETE' });
+      await mutate();
+      toast.success('意图已删除');
+      setPendingDelete(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '删除失败');
+    } finally {
+      setDeleting(false);
+    }
   }
 
   if (isLoading) return <ListPageSkeleton filters={2} rows={4} />;
@@ -158,10 +196,23 @@ export default function IntentPage() {
       {filtered.length === 0 ? (
         <EmptyState icon={Brain} title="暂无意图知识" description="先创建一条意图，后续消息注入会优先查询这里。" />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          {filtered.map((item) => <IntentCard key={item.id} item={item} onDelete={handleDelete} />)}
-        </div>
+        <IntentTable
+          items={filtered}
+          onNavigate={(id) => router.push(`/intent/${id}`)}
+          onDelete={setPendingDelete}
+        />
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => { if (!open) setPendingDelete(null); }}
+        title="确认删除"
+        description={pendingDelete ? `此操作将永久删除意图「${pendingDelete.name}」，不可撤销。` : ''}
+        confirmLabel="确认删除"
+        variant="destructive"
+        loading={deleting}
+        onConfirm={() => void handleConfirmDelete()}
+      />
     </div>
   );
 }

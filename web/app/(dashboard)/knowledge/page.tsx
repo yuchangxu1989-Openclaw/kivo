@@ -32,7 +32,7 @@ import { apiFetch } from '@/lib/client-api';
 import type { ApiResponse } from '@/types';
 import { useCognitiveMode } from '@/contexts/cognitive-mode-context';
 import { CognitivePanel } from '@/components/cognitive-panel';
-import { TYPE_LABELS, typeLabel } from '@/lib/i18n-labels';
+import { TYPE_LABELS, typeLabel, statusLabel, natureLabel, functionLabel, KNOWLEDGE_STATUSES, KNOWLEDGE_NATURES, KNOWLEDGE_FUNCTIONS } from '@/lib/i18n-labels';
 
 interface KnowledgeEntry {
   id: string;
@@ -40,12 +40,22 @@ interface KnowledgeEntry {
   status: string;
   title?: string;
   content: string;
+  why?: string;
   domain?: string;
+  nature?: string;
+  functionTag?: string;
+  knowledgeDomain?: string;
   createdAt: string;
   updatedAt: string;
   source?: { reference?: string; type?: string };
   metadata?: { tags?: string[]; domainData?: { sourceDocument?: string; sourceLocation?: string } };
   similarSentences?: string[] | string | null;
+}
+
+interface KnowledgeFacets {
+  natures: string[];
+  functionTags: string[];
+  domains: string[];
 }
 
 type ViewMode = 'list' | 'table' | 'board';
@@ -242,7 +252,7 @@ function SortableListItem({ entry, density }: { entry: KnowledgeEntry; density: 
           {density !== 'compact' && (
             <div className="flex gap-1 shrink-0">
               <Badge variant="secondary">{TYPE_LABELS[entry.type] ?? entry.type}</Badge>
-              <Badge variant="outline">{entry.status === 'active' ? '活跃' : entry.status}</Badge>
+              <Badge variant="outline">{statusLabel(entry.status)}</Badge>
             </div>
           )}
         </div>
@@ -251,6 +261,12 @@ function SortableListItem({ entry, density }: { entry: KnowledgeEntry; density: 
             <p className={`${density === 'comfortable' ? 'line-clamp-1' : 'whitespace-pre-wrap'} mt-2 text-sm leading-6 text-slate-600`}>
               {getEntrySummary(entry, density)}
             </p>
+            <div className="mt-2 rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2">
+              <span className="text-[11px] font-semibold text-amber-700">为什么需要</span>
+              <p className={`${density === 'comfortable' ? 'line-clamp-2' : 'whitespace-pre-wrap'} mt-0.5 text-sm leading-6 text-slate-700`}>
+                {entry.why?.trim() || <span className="text-slate-400">该条目尚未记录 why（旧数据）</span>}
+              </p>
+            </div>
             <div className="mt-2 flex flex-wrap gap-4 text-xs text-muted-foreground">
               {entry.domain && <span>域: {entry.domain}</span>}
               {(entry.metadata?.domainData?.sourceDocument || entry.source?.reference) && (
@@ -308,10 +324,11 @@ function saveGroupCollapsed(collapsed: Record<string, boolean>) {
 function CompactListView({ entries }: { entries: KnowledgeEntry[] }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="grid grid-cols-[92px_minmax(200px,1fr)_minmax(320px,2fr)_80px_104px] gap-3 border-b border-slate-200 px-4 py-2 text-xs font-medium uppercase tracking-[0.14em] text-slate-600">
+      <div className="grid grid-cols-[88px_minmax(160px,1fr)_minmax(220px,1.6fr)_minmax(200px,1.4fr)_72px_96px] gap-3 border-b border-slate-200 px-4 py-2 text-xs font-medium uppercase tracking-[0.14em] text-slate-600">
         <span>类型</span>
-        <span>名称</span>
-        <span>描述</span>
+        <span>标题</span>
+        <span>内容</span>
+        <span>为什么需要</span>
         <span>状态</span>
         <span>日期</span>
       </div>
@@ -320,7 +337,7 @@ function CompactListView({ entries }: { entries: KnowledgeEntry[] }) {
           <Link
             key={entry.id}
             href={`/knowledge/${entry.id}`}
-            className="grid grid-cols-[92px_minmax(200px,1fr)_minmax(320px,2fr)_80px_104px] items-start gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-slate-50"
+            className="grid grid-cols-[88px_minmax(160px,1fr)_minmax(220px,1.6fr)_minmax(200px,1.4fr)_72px_96px] items-start gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-slate-50"
           >
             <span>
               <Badge variant="secondary" className="max-w-full truncate">{TYPE_LABELS[entry.type] ?? entry.type}</Badge>
@@ -339,7 +356,12 @@ function CompactListView({ entries }: { entries: KnowledgeEntry[] }) {
                 </span>
               )}
             </span>
-            <span className="text-slate-600">{entry.status === 'active' ? '活跃' : entry.status}</span>
+            <span className="min-w-0">
+              <span className="block line-clamp-2 text-slate-600" title={entry.why?.trim() || ''}>
+                {entry.why?.trim() || <span className="text-slate-400">尚未记录</span>}
+              </span>
+            </span>
+            <span className="text-slate-600">{statusLabel(entry.status)}</span>
             <span className="whitespace-nowrap text-xs text-slate-500">{new Date(entry.updatedAt).toLocaleDateString('zh-CN')}</span>
           </Link>
         ))}
@@ -425,6 +447,9 @@ function KnowledgeListPageInner() {
   const [density] = useState<ListDensity>('comfortable');
   const [type, setType] = useState(searchParams.get('type') ?? '');
   const [nature, setNature] = useState(searchParams.get('nature') ?? '');
+  const [functionTag, setFunctionTag] = useState(searchParams.get('functionTag') ?? '');
+  const [knowledgeDomain, setKnowledgeDomain] = useState(searchParams.get('knowledgeDomain') ?? '');
+  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? 'active');
   const [domain, setDomain] = useState(searchParams.get('domain') ?? '');
   const [source, setSource] = useState(searchParams.get('source') ?? '');
   const [quickSearch, setQuickSearch] = useState('');
@@ -438,10 +463,15 @@ function KnowledgeListPageInner() {
 
 
   const params = new URLSearchParams();
-  if (nature) params.set('type', nature);
-  else if (type) params.set('type', type);
+  if (type) params.set('type', type);
   else params.set('excludeTypes', 'wiki_page,wiki_space,intent');
-  params.set('status', 'active');
+  // Non-active statuses are governance views; the API requires includeAll=true
+  // to return anything other than active (FR-B06).
+  params.set('status', statusFilter);
+  if (statusFilter !== 'active') params.set('includeAll', 'true');
+  if (nature) params.set('nature', nature);
+  if (functionTag) params.set('functionTag', functionTag);
+  if (knowledgeDomain) params.set('knowledgeDomain', knowledgeDomain);
   if (domain.trim()) params.set('domain', domain.trim());
   if (source.trim()) params.set('source', source.trim());
   params.set('page', String(page));
@@ -451,6 +481,9 @@ function KnowledgeListPageInner() {
   const { data, isLoading, error, mutate } = useApi<ApiResponse<KnowledgeEntry[]>>(`/api/v1/knowledge?${params.toString()}`);
   const entries = data?.data ?? [];
   const meta = data?.meta;
+
+  const { data: facetsData } = useApi<ApiResponse<KnowledgeFacets>>('/api/v1/knowledge/facets');
+  const facets = facetsData?.data;
 
   // P1-2: Retry count for degradation after 3 failures
   const [retryCount, setRetryCount] = useState(0);
@@ -523,6 +556,8 @@ function KnowledgeListPageInner() {
   }, [allSelected, filteredEntries]);
 
   if (isLoading) return <ListPageSkeleton filters={5} rows={5} />;
+
+  const statusText = statusLabel(statusFilter);
   if (error) {
     if (retryCount >= 3) {
       return (
@@ -541,7 +576,7 @@ function KnowledgeListPageInner() {
           <div className="space-y-2">
             <h1 className="text-3xl font-semibold tracking-tight text-slate-900">知识库</h1>
             <p className="max-w-3xl text-sm leading-6 text-slate-600">
-              {meta?.total != null ? `共 ${meta.total} 条活跃知识。列表、筛选、导入都收在这一个入口。` : '加载中...'}
+              {meta?.total != null ? `共 ${meta.total} 条${statusText}知识。列表、筛选、导入都收在这一个入口。` : '加载中...'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3 sm:justify-end">
@@ -597,10 +632,33 @@ function KnowledgeListPageInner() {
                 {TYPE_KEYS.map(k => <SelectItem key={k} value={k}>{TYPE_LABELS[k]}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Select value="active" onValueChange={() => undefined}>
-              <SelectTrigger className="w-full" aria-label="按状态筛选"><SelectValue placeholder="活跃" /></SelectTrigger>
+            <Select value={statusFilter} onValueChange={v => { setStatusFilter(v); setPage(1); }}>
+              <SelectTrigger className="w-full" aria-label="按状态筛选"><SelectValue placeholder="状态" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="active">活跃</SelectItem>
+                {KNOWLEDGE_STATUSES.map(s => <SelectItem key={s} value={s}>{statusLabel(s)}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
+            <Select value={nature || 'all-natures'} onValueChange={v => { setNature(v === 'all-natures' ? '' : v); setPage(1); }}>
+              <SelectTrigger className="w-full" aria-label="按性质筛选"><SelectValue placeholder="全部性质" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all-natures">全部性质</SelectItem>
+                {KNOWLEDGE_NATURES.map(n => <SelectItem key={n} value={n}>{natureLabel(n)}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={functionTag || 'all-functions'} onValueChange={v => { setFunctionTag(v === 'all-functions' ? '' : v); setPage(1); }}>
+              <SelectTrigger className="w-full" aria-label="按功能筛选"><SelectValue placeholder="全部功能" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all-functions">全部功能</SelectItem>
+                {KNOWLEDGE_FUNCTIONS.map(f => <SelectItem key={f} value={f}>{functionLabel(f)}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={knowledgeDomain || 'all-domains'} onValueChange={v => { setKnowledgeDomain(v === 'all-domains' ? '' : v); setPage(1); }}>
+              <SelectTrigger className="w-full" aria-label="按知识域筛选"><SelectValue placeholder="全部知识域" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all-domains">全部知识域</SelectItem>
+                {(facets?.domains ?? []).map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -614,7 +672,7 @@ function KnowledgeListPageInner() {
           title="当前筛选条件下没有知识条目"
           description="试试放宽筛选条件，或者先去搜索页确认有没有相关知识。"
           primaryAction={{ label: '去语义搜索', href: '/search' }}
-          secondaryAction={{ label: '清空筛选', onClick: () => { setType(''); setNature(''); setDomain(''); setSource(''); setTagFilter(''); setQuickSearch(''); setSort('-updatedAt'); setPage(1); }, variant: 'outline' }}
+          secondaryAction={{ label: '清空筛选', onClick: () => { setType(''); setNature(''); setFunctionTag(''); setKnowledgeDomain(''); setStatusFilter('active'); setDomain(''); setSource(''); setTagFilter(''); setQuickSearch(''); setSort('-updatedAt'); setPage(1); }, variant: 'outline' }}
         />
       ) : (
         <>

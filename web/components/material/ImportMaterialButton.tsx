@@ -270,19 +270,14 @@ export function ImportMaterialButton({
                   </p>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  <label htmlFor="import-material-url" className="block text-sm font-medium text-slate-700">
-                    素材链接或引用
-                  </label>
-                  <Input
-                    id="import-material-url"
-                    value={sourceRef}
-                    onChange={(event) => setSourceRef(event.target.value)}
-                    placeholder="例如 https://example.com/article 或 file://… / s3://…"
-                    data-testid="import-material-url-input"
-                  />
-                  <p className="text-xs text-slate-500">
-                    粘贴一条可定位素材的引用，系统会先登记，等后续切片与知识提取再处理具体内容。
+                <div
+                  className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800"
+                  role="note"
+                  data-testid="import-material-url-unsupported"
+                >
+                  <p className="font-medium">暂不支持链接导入</p>
+                  <p className="text-xs leading-5 text-amber-700">
+                    当前仅受理本地文件上传。如需导入网页或外部引用的内容，请先把它保存为 PDF / 图片等文件，再切换到「上传文件」导入。
                   </p>
                 </div>
               )}
@@ -328,7 +323,7 @@ export function ImportMaterialButton({
                 </Button>
                 <Button
                   onClick={() => void submit()}
-                  disabled={submitting || (mode === 'file' ? !file : sourceRef.trim().length === 0)}
+                  disabled={submitting || mode === 'url' || !file}
                   data-testid="import-material-submit"
                 >
                   {submitting ? (

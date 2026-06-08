@@ -35,6 +35,13 @@ export function ensureSubjectMutationSchema(db: Database.Database): void {
     db.exec(`ALTER TABLE subject_nodes ADD COLUMN status TEXT DEFAULT 'active'`);
   }
 
+  // `deletable` distinguishes system root nodes (0) from user/auto nodes (1).
+  // repository.ts selects this column on every listTree/getRow read, so an
+  // older DB without it makes /api/subjects throw "no such column: deletable".
+  if (!hasColumn(db, 'subject_nodes', 'deletable')) {
+    db.exec(`ALTER TABLE subject_nodes ADD COLUMN deletable INTEGER NOT NULL DEFAULT 1`);
+  }
+
   if (!hasColumn(db, 'entries', 'subject_id')) {
     db.exec(`ALTER TABLE entries ADD COLUMN subject_id TEXT`);
   }

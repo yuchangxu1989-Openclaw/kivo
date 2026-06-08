@@ -359,7 +359,12 @@ export function SpaceManager() {
   const { data: entriesData, isLoading: entriesLoading } = useApi<ApiResponse<WikiEntryItem[]>>(entriesUrl);
   const { data: pageData, error: pageError } = useApi<{ data: WikiPageDetail }>(selectedPageId ? `/api/wiki/pages/${selectedPageId}` : null);
   const { data: relatedData, isLoading: relatedLoading, error: relatedError } = useApi<{ data: WikiRelatedResponse }>(selectedPageId ? `/api/wiki/pages/${selectedPageId}/links` : null);
-  const { data: subjectsData } = useApi<ApiResponse<SubjectTreeNode[]>>('/api/subjects');
+  const {
+    data: subjectsData,
+    error: subjectsError,
+    isLoading: subjectsLoading,
+    mutate: refetchSubjects,
+  } = useApi<ApiResponse<SubjectTreeNode[]>>('/api/subjects');
 
   const tree = treeData?.data;
   const entries = entriesData?.data ?? [];
@@ -602,12 +607,27 @@ export function SpaceManager() {
                 <div className="flex items-center justify-between gap-2">
                   <CardTitle className="text-sm text-slate-900">学科目录</CardTitle>
                   <Badge variant="outline" className="text-[10px]">
-                    {(subjectsData?.data ?? []).reduce((n, node) => countTreeNodes(node, n), 0)} 节点
+                    {subjectsError
+                      ? '加载失败'
+                      : `${(subjectsData?.data ?? []).reduce((n, node) => countTreeNodes(node, n), 0)} 节点`}
                   </Badge>
                 </div>
               </CardHeader>
               <CardContent className="max-h-80 overflow-y-auto">
-                {!subjectsData ? (
+                {subjectsError ? (
+                  <div className="space-y-2 py-2" role="alert">
+                    <p className="text-xs text-red-600">学科目录加载失败，请稍后重试。</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => void refetchSubjects()}
+                    >
+                      重试
+                    </Button>
+                  </div>
+                ) : subjectsLoading || !subjectsData ? (
                   <div className="h-10 animate-pulse rounded-xl bg-slate-100" />
                 ) : subjectsData.data.length === 0 ? (
                   <p className="text-xs text-slate-500">暂无学科节点。</p>
