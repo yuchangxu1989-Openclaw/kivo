@@ -5,9 +5,31 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getKivo, getRepository } from '@/lib/kivo-engine';
-import { notFound, serverError } from '@/lib/errors';
+import { badRequest, notFound, serverError } from '@/lib/errors';
 import { getKnowledgeHistory } from '@/lib/knowledge-history';
+import { getKnowledgeEntryFields, setEntrySimilarSentences, setEntryWhy } from '@/lib/paginated-queries';
 import type { ApiResponse } from '@/types';
+
+function normalizeTags(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+
+function normalizeLines(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function hasField(body: Record<string, unknown>, field: string): boolean {
+  return Object.prototype.hasOwnProperty.call(body, field);
+}
 
 export async function GET(
   _request: NextRequest,
@@ -40,14 +62,16 @@ export async function GET(
       }));
 
     const versions = getKnowledgeHistory(entry);
-
-    // Flatten response: spread entry fields + relations + versions
     const entryAny = entry as unknown as Record<string, unknown>;
     const entryMeta = entryAny.metadata as Record<string, unknown> | undefined;
     const domainData = entryMeta?.domainData as Record<string, unknown> | undefined;
+    const dbEntry = getKnowledgeEntryFields(id);
+
     const response: ApiResponse<Record<string, unknown>> = {
       data: {
         ...entry,
+        why: dbEntry?.why ?? entryAny.why,
+        similarSentences: dbEntry?.similarSentences ?? entry.similarSentences,
         sourceLabel: `${entry.source.type} · ${entry.source.reference}`,
         sourceDocument: domainData?.sourceDocument ?? (entry.source.type === 'document' ? entry.source.reference : undefined),
         sourceLocation: domainData?.sourceLocation ?? undefined,
@@ -56,6 +80,40 @@ export async function GET(
       },
     };
     return NextResponse.json(response);
+  } catch (err) {
+    return serverError(err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const { id } = params;
+    const kivo = await getKivo();
+    const entry = await kivo.getEntry(id);
+    if (!entry) return notFound(`Knowledge entry not found: ${id}`);
+
+    const body = await request.json() as Record<string, unknown>;
+    const metadata = hasField(body, 'metadata') && body.metadata && typeof body.metadata === 'object'
+      ? body.metadata as Record<string, unknown>
+      : undefined;
+    if (metadata && hasField(metadata, 'tags')) {
+      const tags = normalizeTags(metadata.tags);
+      await getRepository().then((repo) => repo.save({ ...entry, tags, metadata: { ...entry.metadata, ...metadata }, updatedAt: new Date() }, { skipQualityGate: true, skipDedup: true }));
+    }
+    if (hasField(body, 'why')) {
+      if (typeof body.why !== 'string') return badRequest('why must be a string');
+      setEntryWhy(id, body.why);
+    }
+    if (hasField(body, 'similarSentences')) {
+      if (!Array.isArray(body.similarSentences)) return badRequest('similarSentences must be an array');
+      setEntrySimilarSentences(id, normalizeLines(body.similarSentences));
+    }
+    const updated = await kivo.getEntry(id);
+    const updatedFields = getKnowledgeEntryFields(id);
+    return NextResponse.json({ data: { ...(updated ?? entry), ...updatedFields } } satisfies ApiResponse<Record<string, unknown>>);
   } catch (err) {
     return serverError(err instanceof Error ? err.message : 'Unknown error');
   }

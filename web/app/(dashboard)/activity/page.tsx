@@ -168,7 +168,7 @@ export default function ActivityPage() {
       fallbackTimer = setInterval(async () => {
         if (cancelled) return;
         try {
-          const response = await fetch(`/api/v1/activity?type=${apiFilterParam}&since=${initialLastEventId ?? ''}`);
+          const response = await fetch(withBasePath(`/api/v1/activity?type=${apiFilterParam}&since=${initialLastEventId ?? ''}`));
           if (!response.ok) throw new Error(`请求失败 (${response.status})`);
           const payload = await response.json() as ApiResponse<ActivityFeedData>;
           if (!cancelled && payload.data.items.length > 0) {

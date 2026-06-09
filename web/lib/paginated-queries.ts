@@ -335,12 +335,24 @@ export function getKnowledgeFacets(): {
 /**
  * Persist the `why` field for an entry (FR-A05 AC-A05-7). Separate from
  * repo.save() because the core StorageProvider SPI does not yet carry `why`;
- * the column is web-managed. No-op when value is empty.
+ * the column is web-managed.
  */
 export function setEntryWhy(id: string, why: string): void {
-  const value = why.trim();
-  if (!value) return;
-  getDb().prepare('UPDATE entries SET why = ? WHERE id = ?').run(value, id);
+  getDb().prepare('UPDATE entries SET why = ?, updated_at = ? WHERE id = ?').run(why.trim() || null, new Date().toISOString(), id);
+}
+
+export function setEntrySimilarSentences(id: string, similarSentences: string[]): void {
+  getDb().prepare('UPDATE entries SET similar_sentences = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(similarSentences), new Date().toISOString(), id);
+}
+
+export function getKnowledgeEntryFields(id: string): { why?: string; similarSentences?: string[] } | null {
+  const row = getDb().prepare('SELECT why, similar_sentences FROM entries WHERE id = ?').get(id) as { why: string | null; similar_sentences: string | null } | undefined;
+  if (!row) return null;
+  const similarSentences = safeJsonParse<string[]>(row.similar_sentences, []);
+  return {
+    why: row.why ?? undefined,
+    similarSentences: similarSentences.length > 0 ? similarSentences : undefined,
+  };
 }
 
 export function getActiveTypeCounts(): Record<string, number> {

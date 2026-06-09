@@ -33,8 +33,6 @@ CREATE TABLE IF NOT EXISTS intents (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
-  positives_json TEXT NOT NULL DEFAULT '[]',
-  negatives_json TEXT NOT NULL DEFAULT '[]',
   embedding BLOB,
   confidence REAL NOT NULL DEFAULT 0.8,
   status TEXT NOT NULL DEFAULT 'active',
@@ -108,19 +106,6 @@ if (entriesToMigrate.length === 0) {
   process.exit(0);
 }
 
-// Step 3: Migrate entries
-function parsePositivesNegatives(metadataJson: string | null): { positives: string[]; negatives: string[] } {
-  if (!metadataJson) return { positives: [], negatives: [] };
-  try {
-    const meta = JSON.parse(metadataJson) as Record<string, unknown>;
-    const positives = Array.isArray(meta.positives) ? meta.positives.filter((s: unknown) => typeof s === 'string') : [];
-    const negatives = Array.isArray(meta.negatives) ? meta.negatives.filter((s: unknown) => typeof s === 'string') : [];
-    return { positives, negatives };
-  } catch {
-    return { positives: [], negatives: [] };
-  }
-}
-
 function parseSimilarSentences(raw: string | null): string[] {
   if (!raw) return [];
   try {
@@ -134,10 +119,9 @@ function parseSimilarSentences(raw: string | null): string[] {
 if (!DRY_RUN) {
   const insertStmt = db.prepare(`
     INSERT OR IGNORE INTO intents (
-      id, name, description, positives_json, negatives_json,
-      embedding, confidence, status, hit_count, last_hit_at,
+      id, name, description, embedding, confidence, status, hit_count, last_hit_at,
       similar_sentences_json, metadata_json, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const markMigratedStmt = db.prepare(`
@@ -150,15 +134,12 @@ if (!DRY_RUN) {
     let skipped = 0;
 
     for (const entry of entriesToMigrate) {
-      const { positives, negatives } = parsePositivesNegatives(entry.metadata_json);
       const similarSentences = parseSimilarSentences(entry.similar_sentences);
 
       const result = insertStmt.run(
         entry.id,
         entry.title,
         entry.content,
-        JSON.stringify(positives),
-        JSON.stringify(negatives),
         entry.embedding,
         entry.confidence,
         entry.status === 'active' ? 'active' : entry.status,

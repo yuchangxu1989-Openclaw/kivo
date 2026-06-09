@@ -29,14 +29,17 @@ export async function PUT(
     const body = await request.json();
     const name = typeof body?.name === 'string' ? body.name.trim() : '';
     const description = typeof body?.description === 'string' ? body.description.trim() : '';
-    const positives = normalizeIntentLines(body?.positives);
-    const negatives = normalizeIntentLines(body?.negatives);
+    const why = typeof body?.why === 'string' ? body.why.trim() : undefined;
+    const similarSentences = normalizeIntentLines(body?.similarSentences);
 
     if (!name || !description) {
       return badRequest('name and description are required');
     }
+    if (!getIntentApiById(id)) {
+      return notFound(`Intent not found: ${id}`);
+    }
 
-    const data = await upsertIntent({ id, name, description, positives, negatives });
+    const data = await upsertIntent({ id, name, description, why, similarSentences });
     if (!data) {
       return notFound(`Intent not found: ${id}`);
     }

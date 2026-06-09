@@ -12,8 +12,7 @@ interface IntentRow {
   id: string;
   name: string;
   description: string;
-  positives_json: string | null;
-  negatives_json: string | null;
+  why: string | null;
   similar_sentences_json: string | null;
   status: string | null;
   hit_count: number | null;
@@ -57,8 +56,6 @@ export function ensureIntentTables(conn: Database.Database): void {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       description TEXT NOT NULL,
-      positives_json TEXT NOT NULL DEFAULT '[]',
-      negatives_json TEXT NOT NULL DEFAULT '[]',
       embedding BLOB,
       status TEXT NOT NULL DEFAULT 'active',
       hit_count INTEGER NOT NULL DEFAULT 0,
@@ -75,8 +72,7 @@ export function ensureIntentTables(conn: Database.Database): void {
   const colNames = new Set(columns.map((column) => column.name));
   if (!colNames.has('name')) conn.exec(`ALTER TABLE intents ADD COLUMN name TEXT NOT NULL DEFAULT ''`);
   if (!colNames.has('description')) conn.exec(`ALTER TABLE intents ADD COLUMN description TEXT NOT NULL DEFAULT ''`);
-  if (!colNames.has('positives_json')) conn.exec(`ALTER TABLE intents ADD COLUMN positives_json TEXT NOT NULL DEFAULT '[]'`);
-  if (!colNames.has('negatives_json')) conn.exec(`ALTER TABLE intents ADD COLUMN negatives_json TEXT NOT NULL DEFAULT '[]'`);
+  if (!colNames.has('why')) conn.exec(`ALTER TABLE intents ADD COLUMN why TEXT`);
   if (!colNames.has('similar_sentences_json')) conn.exec(`ALTER TABLE intents ADD COLUMN similar_sentences_json TEXT NOT NULL DEFAULT '[]'`);
   if (!colNames.has('embedding')) conn.exec(`ALTER TABLE intents ADD COLUMN embedding BLOB`);
   if (!colNames.has('status')) conn.exec(`ALTER TABLE intents ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`);
@@ -132,8 +128,7 @@ function rowToIntent(row: IntentRow): IntentItem {
     id: row.id,
     name: row.name,
     description: row.description,
-    positives: parseArray(row.positives_json),
-    negatives: parseArray(row.negatives_json),
+    why: row.why ?? undefined,
     similarSentences: parseArray(row.similar_sentences_json),
     relatedEntryCount: 0,
     recentHitCount: row.hit_count ?? 0,
@@ -160,8 +155,7 @@ function legacyRowToIntent(row: LegacyIntentRow): IntentItem {
     id: row.id,
     name: row.title,
     description: row.content,
-    positives: [],
-    negatives: [],
+    why: row.summary ?? undefined,
     similarSentences: parseArray(row.similar_sentences),
     relatedEntryCount: 0,
     recentHitCount: 0,
@@ -237,17 +231,17 @@ export function getIntentApiById(id: string) {
   return legacyRow ? legacyRowToApiIntent(legacyRow) : null;
 }
 
-export async function upsertIntent(input: { id?: string; name: string; description: string; positives?: string[]; negatives?: string[]; relatedEntryCount?: number; confidence?: number; sourceSessionId?: string; sourceMessageId?: string }) {
+export async function upsertIntent(input: { id?: string; name: string; description: string; why?: string; similarSentences?: string[]; relatedEntryCount?: number; confidence?: number; sourceSessionId?: string; sourceMessageId?: string }) {
   const name = input.name.trim();
   const description = input.description.trim();
+  const why = input.why?.trim() ?? '';
   const id = input.id?.trim() || `intent-${randomUUID()}`;
   const now = new Date().toISOString();
   const existing = getIntentApiById(id);
-  const positives = input.positives ?? [];
-  const negatives = input.negatives ?? [];
+  const similarSentences = input.similarSentences ?? existing?.similarSentences ?? [];
   let embedding: Buffer | null = null;
   try {
-    const vector = await embedQuery(`${name}\n${description}\n${positives.join('\n')}`);
+    const vector = await embedQuery(`${name}\n${description}\n${why}\n${similarSentences.join('\n')}`);
     embedding = Buffer.from(new Float32Array(vector).buffer);
   } catch {
     embedding = null;
@@ -258,14 +252,14 @@ export async function upsertIntent(input: { id?: string; name: string; descripti
     if (intentExists) {
       getDb().prepare(`
         UPDATE intents
-        SET name = ?, description = ?, positives_json = ?, negatives_json = ?, confidence = ?,
+        SET name = ?, description = ?, why = ?, similar_sentences_json = ?, confidence = ?,
             source_session_id = ?, source_message_id = ?, embedding = COALESCE(?, embedding), updated_at = ?
         WHERE id = ?
       `).run(
         name,
         description,
-        JSON.stringify(positives),
-        JSON.stringify(negatives),
+        why || existing.why || null,
+        JSON.stringify(similarSentences),
         input.confidence ?? existing.confidence,
         input.sourceSessionId ?? existing.sourceSessionId ?? null,
         input.sourceMessageId ?? existing.sourceMessageId ?? null,
@@ -281,8 +275,8 @@ export async function upsertIntent(input: { id?: string; name: string; descripti
       `).run(
         name,
         description,
-        description,
-        JSON.stringify(positives),
+        why || description,
+        JSON.stringify(similarSentences),
         input.confidence ?? existing.confidence,
         now,
         id,
@@ -290,14 +284,14 @@ export async function upsertIntent(input: { id?: string; name: string; descripti
     }
   } else {
     getDb().prepare(`
-      INSERT INTO intents (id, name, description, positives_json, negatives_json, embedding, status, confidence, source_session_id, source_message_id, created_at, updated_at)
+      INSERT INTO intents (id, name, description, why, similar_sentences_json, embedding, status, confidence, source_session_id, source_message_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
     `).run(
       id,
       name,
       description,
-      JSON.stringify(positives),
-      JSON.stringify(negatives),
+      why || null,
+      JSON.stringify(similarSentences),
       embedding,
       input.confidence ?? 1,
       input.sourceSessionId ?? null,

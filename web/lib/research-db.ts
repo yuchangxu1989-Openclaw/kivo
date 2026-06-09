@@ -1,31 +1,21 @@
-import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import { shouldBypassExternalModelsInTests } from '@kivo/utils/test-runtime';
 
 import { openWebDb } from './db';
 import { appendActivityEvent } from './domain-stores';
 import { logResearchComplete } from './operation-log-integration';
 import { writeOperationLog } from './operation-log-db';
-import type { Priority, ResearchDashboardData, ResearchReferenceBatchStatus, ResearchStatus, ResearchTask } from './domain-types';
+import type { Priority, ResearchDashboardData, ResearchReferenceBatchStatus, ResearchReport, ResearchStatus, ResearchTask, ResearchTaskRegistryItem, ResearchTopic } from './domain-types';
 import type { KnowledgeEntry } from '@self-evolving-harness/kivo';
+export type { ResearchDashboardData } from './domain-types';
 import { persistEntry } from './kivo-engine';
-import { chatJson } from './llm/penguin-client';
-
-const execFileAsync = promisify(execFile);
-export type { Priority, ResearchDashboardData, ResearchReferenceBatchStatus, ResearchStatus, ResearchTask } from './domain-types';
 
 const DEFAULT_EXPECTED_TYPES = ['fact', 'decision', 'methodology'];
 const RESEARCH_AUTO_PAUSED_KEY = 'research:auto_paused';
 const VALID_STATUSES = new Set(['pending', 'queued', 'executing', 'running', 'completed', 'failed', 'cancelled']);
-const REGISTRY_STATUSES = new Set(['running', 'completed', 'failed', 'cancelled']);
-const READABLE_REPORT_EXTENSIONS = new Set(['.md', '.markdown', '.txt']);
-const EXTRACTION_PROMPT_VERSION = 'research-reference-v1';
-const RESEARCH_TOPIC_REUSE_MIN_SCORE = 0.86;
-const RESEARCH_EMBEDDING_ENDPOINT = process.env.KIVO_RESEARCH_EMBEDDING_URL || 'http://localhost:9876/api/v1/embeddings';
-const RESEARCH_EMBEDDING_MODEL = process.env.KIVO_RESEARCH_EMBEDDING_MODEL || 'doubao-embedding-vision-251215';
 
 type ResearchTaskRow = {
   id: string;
@@ -51,75 +41,6 @@ type ResearchTaskRow = {
   wiki_page_id: string | null;
 };
 
-type ResearchTopicRow = {
-  id: string;
-  name: string;
-  normalized_name: string;
-  description: string | null;
-  created_at: number | string | null;
-  updated_at: number | string | null;
-  task_count: number | null;
-  report_count: number | null;
-};
-
-type ResearchReportRow = {
-  id: string;
-  topic_id: string;
-  task_id: string | null;
-  title: string;
-  report_uri: string;
-  report_kind: string | null;
-  content_hash: string | null;
-  external_content_hash: string | null;
-  is_reference: number | null;
-  reference_marked_at: number | string | null;
-  reference_marked_by: string | null;
-  created_at: number | string | null;
-  updated_at: number | string | null;
-  failure_reason: string | null;
-  metadata_json: string | null;
-};
-
-type ReferenceBatchRow = {
-  id: string;
-  report_id: string;
-  topic_id: string;
-  content_hash: string | null;
-  status: string;
-  confirmed_by: string;
-  confirmed_at: number | string | null;
-  extracted_at: number | string | null;
-  error_message: string | null;
-  llm_provider_id: string | null;
-  llm_model: string | null;
-  extraction_prompt_version: string;
-  extracted_summary: string | null;
-  inserted_count: number | null;
-  source_type: string | null;
-  metadata_json: string | null;
-};
-
-type ResearchTaskRegistryRow = {
-  id: string;
-  topic_id: string | null;
-  title: string | null;
-  query: string | null;
-  status: string | null;
-  source_type: string | null;
-  source_ref: string | null;
-  actor_id: string | null;
-  executor_id: string | null;
-  created_at: number | string | null;
-  updated_at: number | string | null;
-  started_at: number | string | null;
-  completed_at: number | string | null;
-  cancelled_at: number | string | null;
-  failure_reason: string | null;
-  report_path: string | null;
-  result_path: string | null;
-  metadata_json: string | null;
-};
-
 export interface CreateResearchTaskInput {
   topic?: string;
   query?: string;
@@ -129,51 +50,6 @@ export interface CreateResearchTaskInput {
   expectedTypes: string[];
   requestedBy?: string;
   autoExecute?: boolean;
-}
-
-export interface RegisterResearchTaskInput {
-  topicName: string;
-  taskTitle: string;
-  query?: string;
-  sourceType?: string;
-  sourceRef?: string;
-  actorId?: string;
-  executorId?: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface RegisterResearchReportInput {
-  taskId: string;
-  title?: string;
-  reportUri: string;
-  reportKind?: string;
-  externalContentHash?: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface UpdateRegisteredResearchTaskStatusInput {
-  taskId: string;
-  status: 'running' | 'completed' | 'failed' | 'cancelled';
-  reason?: string;
-  reportUri?: string;
-  reportTitle?: string;
-  executorId?: string;
-}
-
-export interface ConfirmResearchReportInput {
-  reportId: string;
-  confirmedBy: string;
-}
-
-export interface ConfirmResearchReportResult {
-  reportId: string;
-  topicId: string;
-  status: 'completed' | 'failed' | 'duplicate' | 'skipped';
-  sourceType: 'local' | 'lark';
-  contentHash?: string;
-  batchId?: string;
-  insertedCount: number;
-  failureReason?: string;
 }
 
 export interface ResearchTaskDetailData extends ResearchTask {
@@ -196,101 +72,19 @@ function ensureResearchTables() {
   const db = openWebDb(false);
   try {
     db.exec(`
-      CREATE TABLE IF NOT EXISTS research_topics (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        normalized_name TEXT NOT NULL UNIQUE,
-        description TEXT,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL,
-        task_count INTEGER NOT NULL DEFAULT 0,
-        report_count INTEGER NOT NULL DEFAULT 0
-      );
-
       CREATE TABLE IF NOT EXISTS research_tasks (
         id TEXT PRIMARY KEY,
-        topic_id TEXT,
         query TEXT,
         requested_by TEXT,
-        title TEXT,
         description TEXT,
-        scope TEXT,
-        priority TEXT DEFAULT 'medium',
-        budget_credits INTEGER DEFAULT 20,
-        expected_types_json TEXT DEFAULT '["fact","decision","methodology"]',
         status TEXT,
         report_path TEXT,
-        result_path TEXT,
         source_channel TEXT,
-        source_type TEXT DEFAULT 'agent',
-        source_ref TEXT,
-        actor_id TEXT,
-        executor_id TEXT,
         created_at INTEGER,
         updated_at INTEGER,
-        started_at INTEGER,
         completed_at INTEGER,
-        cancelled_at INTEGER,
         adopted_at INTEGER,
-        highlighted INTEGER DEFAULT 0,
-        failure_reason TEXT,
-        wiki_page_id TEXT,
-        metadata_json TEXT DEFAULT '{}',
         produced_entry_ids_json TEXT
-      );
-
-      CREATE TABLE IF NOT EXISTS research_reports (
-        id TEXT PRIMARY KEY,
-        topic_id TEXT NOT NULL,
-        task_id TEXT,
-        title TEXT NOT NULL,
-        report_uri TEXT NOT NULL,
-        report_kind TEXT NOT NULL DEFAULT 'markdown',
-        content_hash TEXT,
-        external_content_hash TEXT,
-        is_reference INTEGER NOT NULL DEFAULT 0,
-        reference_marked_at INTEGER,
-        reference_marked_by TEXT,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL,
-        failure_reason TEXT,
-        metadata_json TEXT NOT NULL DEFAULT '{}',
-        FOREIGN KEY (topic_id) REFERENCES research_topics(id) ON DELETE CASCADE,
-        FOREIGN KEY (task_id) REFERENCES research_tasks(id) ON DELETE SET NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS research_reference_batches (
-        id TEXT PRIMARY KEY,
-        report_id TEXT NOT NULL,
-        topic_id TEXT NOT NULL,
-        content_hash TEXT,
-        status TEXT NOT NULL CHECK (status IN ('extracting', 'completed', 'failed', 'duplicate', 'skipped')),
-        confirmed_by TEXT NOT NULL,
-        confirmed_at INTEGER NOT NULL,
-        extracted_at INTEGER,
-        error_message TEXT,
-        llm_provider_id TEXT,
-        llm_model TEXT,
-        extraction_prompt_version TEXT NOT NULL,
-        extracted_summary TEXT,
-        inserted_count INTEGER NOT NULL DEFAULT 0,
-        source_type TEXT,
-        metadata_json TEXT NOT NULL DEFAULT '{}',
-        FOREIGN KEY (report_id) REFERENCES research_reports(id) ON DELETE CASCADE,
-        FOREIGN KEY (topic_id) REFERENCES research_topics(id) ON DELETE CASCADE
-      );
-
-      CREATE TABLE IF NOT EXISTS research_report_entries (
-        id TEXT PRIMARY KEY,
-        batch_id TEXT NOT NULL,
-        report_id TEXT NOT NULL,
-        topic_id TEXT NOT NULL,
-        entry_id TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        FOREIGN KEY (batch_id) REFERENCES research_reference_batches(id) ON DELETE CASCADE,
-        FOREIGN KEY (report_id) REFERENCES research_reports(id) ON DELETE CASCADE,
-        FOREIGN KEY (topic_id) REFERENCES research_topics(id) ON DELETE CASCADE,
-        FOREIGN KEY (entry_id) REFERENCES entries(id) ON DELETE CASCADE
       );
 
       CREATE TABLE IF NOT EXISTS kivo_meta (
@@ -298,11 +92,9 @@ function ensureResearchTables() {
         value TEXT NOT NULL,
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
-
     `);
 
     ensureColumn(db, 'research_tasks', 'query', 'TEXT');
-    ensureColumn(db, 'research_tasks', 'topic_id', 'TEXT');
     ensureColumn(db, 'research_tasks', 'requested_by', 'TEXT');
     ensureColumn(db, 'research_tasks', 'title', 'TEXT');
     ensureColumn(db, 'research_tasks', 'description', 'TEXT');
@@ -321,62 +113,77 @@ function ensureResearchTables() {
     ensureColumn(db, 'research_tasks', 'result_path', 'TEXT');
     ensureColumn(db, 'research_tasks', 'produced_entry_ids_json', "TEXT DEFAULT '[]'");
     ensureColumn(db, 'research_tasks', 'failure_reason', 'TEXT');
-    ensureColumn(db, 'research_tasks', 'wiki_page_id', 'TEXT');
-    ensureColumn(db, 'research_tasks', 'source_type', "TEXT DEFAULT 'agent'");
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS research_topics (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        normalized_name TEXT NOT NULL UNIQUE,
+        description TEXT,
+        embedding_json TEXT,
+        task_count INTEGER NOT NULL DEFAULT 0,
+        report_count INTEGER NOT NULL DEFAULT 0,
+        reference_report_count INTEGER NOT NULL DEFAULT 0,
+        wiki_entry_count INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER,
+        updated_at INTEGER
+      );
+
+      CREATE TABLE IF NOT EXISTS research_reports (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        topic_id TEXT,
+        title TEXT NOT NULL,
+        report_uri TEXT NOT NULL,
+        report_kind TEXT,
+        content_hash TEXT,
+        external_content_hash TEXT,
+        is_reference INTEGER NOT NULL DEFAULT 0,
+        reference_marked_at INTEGER,
+        reference_marked_by TEXT,
+        source_type TEXT,
+        failure_reason TEXT,
+        created_at INTEGER,
+        updated_at INTEGER
+      );
+
+      CREATE TABLE IF NOT EXISTS research_reference_batches (
+        id TEXT PRIMARY KEY,
+        report_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        source_type TEXT,
+        content_hash TEXT,
+        confirmed_by TEXT NOT NULL,
+        confirmed_at INTEGER,
+        extracted_at INTEGER,
+        inserted_count INTEGER NOT NULL DEFAULT 0,
+        duplicate_of_batch_id TEXT,
+        error_message TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS research_report_entries (
+        report_id TEXT NOT NULL,
+        entry_id TEXT NOT NULL,
+        title TEXT,
+        summary TEXT,
+        PRIMARY KEY (report_id, entry_id)
+      );
+    `);
+
+    ensureColumn(db, 'research_tasks', 'topic_id', 'TEXT');
+    ensureColumn(db, 'research_tasks', 'source_type', 'TEXT');
     ensureColumn(db, 'research_tasks', 'source_ref', 'TEXT');
     ensureColumn(db, 'research_tasks', 'actor_id', 'TEXT');
     ensureColumn(db, 'research_tasks', 'executor_id', 'TEXT');
     ensureColumn(db, 'research_tasks', 'cancelled_at', 'INTEGER');
-    ensureColumn(db, 'research_tasks', 'metadata_json', "TEXT DEFAULT '{}'");
+    ensureColumn(db, 'research_tasks', 'wiki_page_id', 'TEXT');
 
-    ensureColumn(db, 'research_reports', 'external_content_hash', 'TEXT');
-    ensureColumn(db, 'research_reference_batches', 'inserted_count', 'INTEGER DEFAULT 0');
-    ensureColumn(db, 'research_reference_batches', 'source_type', 'TEXT');
-    ensureReferenceBatchStatusConstraint(db);
-
-    db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_research_topics_updated_at
-        ON research_topics(updated_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_research_tasks_topic_status
-        ON research_tasks(topic_id, status, updated_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_research_tasks_updated_at
-        ON research_tasks(updated_at DESC);
-
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_research_reports_uri
-        ON research_reports(report_uri);
-
-      CREATE INDEX IF NOT EXISTS idx_research_reports_topic_created
-        ON research_reports(topic_id, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_research_reports_reference
-        ON research_reports(is_reference, reference_marked_at DESC);
-
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_research_reference_batches_dedup
-        ON research_reference_batches(report_id, content_hash)
-        WHERE status = 'completed';
-
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_research_reference_batches_claim
-        ON research_reference_batches(report_id, content_hash)
-        WHERE status IN ('extracting', 'completed');
-
-      CREATE INDEX IF NOT EXISTS idx_research_reference_batches_report
-        ON research_reference_batches(report_id, confirmed_at DESC);
-
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_research_report_entries_unique
-        ON research_report_entries(report_id, entry_id);
-
-      CREATE INDEX IF NOT EXISTS idx_research_report_entries_topic
-        ON research_report_entries(topic_id, created_at DESC);
-    `);
 
     db.prepare("UPDATE research_tasks SET query = COALESCE(query, title, description, '') WHERE query IS NULL OR query = ''").run();
     db.prepare("UPDATE research_tasks SET requested_by = COALESCE(requested_by, source_channel, 'unknown') WHERE requested_by IS NULL OR requested_by = ''").run();
     db.prepare("UPDATE research_tasks SET updated_at = COALESCE(updated_at, created_at, ?) WHERE updated_at IS NULL").run(Date.now());
     db.prepare("UPDATE research_tasks SET status = 'pending' WHERE status = 'queued'").run();
     db.prepare("UPDATE research_tasks SET status = 'executing' WHERE status = 'running'").run();
-    backfillLegacyResearchRegistry(db);
   } finally {
     db.close();
   }
@@ -386,279 +193,6 @@ function ensureColumn(db: ReturnType<typeof openWebDb>, table: string, column: s
   const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
   if (!columns.some((item) => item.name === column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
-  }
-}
-
-function ensureReferenceBatchStatusConstraint(db: ReturnType<typeof openWebDb>): void {
-  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'research_reference_batches'").get() as { sql?: string } | undefined;
-  const sql = row?.sql ?? '';
-  if (!sql.includes("status IN ('extracting', 'completed', 'failed')")) return;
-
-  db.exec(`
-    PRAGMA foreign_keys = OFF;
-    ALTER TABLE research_reference_batches RENAME TO research_reference_batches_old;
-    CREATE TABLE research_reference_batches (
-      id TEXT PRIMARY KEY,
-      report_id TEXT NOT NULL,
-      topic_id TEXT NOT NULL,
-      content_hash TEXT,
-      status TEXT NOT NULL CHECK (status IN ('extracting', 'completed', 'failed', 'duplicate', 'skipped')),
-      confirmed_by TEXT NOT NULL,
-      confirmed_at INTEGER NOT NULL,
-      extracted_at INTEGER,
-      error_message TEXT,
-      llm_provider_id TEXT,
-      llm_model TEXT,
-      extraction_prompt_version TEXT NOT NULL,
-      extracted_summary TEXT,
-      inserted_count INTEGER NOT NULL DEFAULT 0,
-      source_type TEXT,
-      metadata_json TEXT NOT NULL DEFAULT '{}',
-      FOREIGN KEY (report_id) REFERENCES research_reports(id) ON DELETE CASCADE,
-      FOREIGN KEY (topic_id) REFERENCES research_topics(id) ON DELETE CASCADE
-    );
-    INSERT INTO research_reference_batches (
-      id, report_id, topic_id, content_hash, status, confirmed_by, confirmed_at, extracted_at,
-      error_message, llm_provider_id, llm_model, extraction_prompt_version, extracted_summary,
-      inserted_count, source_type, metadata_json
-    )
-    SELECT
-      id, report_id, topic_id, content_hash, status, confirmed_by, confirmed_at, extracted_at,
-      error_message, llm_provider_id, llm_model, extraction_prompt_version, extracted_summary,
-      COALESCE(inserted_count, 0), source_type, COALESCE(metadata_json, '{}')
-    FROM research_reference_batches_old;
-    DROP TABLE research_reference_batches_old;
-    PRAGMA foreign_keys = ON;
-  `);
-}
-
-function normalizeTopicName(value: string): string {
-  return value.trim().replace(/\s+/g, ' ').toLowerCase();
-}
-
-function jsonObject(value: Record<string, unknown> | undefined): string {
-  return JSON.stringify(value ?? {});
-}
-
-function parseJsonObject(value: string | null | undefined): Record<string, unknown> {
-  if (!value) return {};
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
-  } catch {
-    return {};
-  }
-}
-
-function workspaceRoot(): string {
-  return path.resolve(process.env.KIVO_WORKSPACE_ROOT || '/root/.openclaw/workspace');
-}
-
-function normalizeReportContent(content: string): string {
-  return content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-}
-
-function calculateContentHash(content: string): string {
-  return createHash('sha256').update(normalizeReportContent(content), 'utf8').digest('hex');
-}
-
-function sourceTypeFromReportUri(reportUri: string): 'local' | 'lark' {
-  if (/^https?:\/\/(?:[^/]+\.)?(?:feishu|larksuite)\.(?:cn|com)\//i.test(reportUri) || /^lark:|^feishu:/i.test(reportUri)) {
-    return 'lark';
-  }
-  return 'local';
-}
-
-function larkDocToken(reportUri: string): string {
-  const trimmed = reportUri.trim();
-  const customScheme = trimmed.match(/^(?:lark|feishu):\/\/(?:docx?|docs|wiki)\/([A-Za-z0-9_-]+)/i);
-  if (customScheme?.[1]) return customScheme[1];
-  const prefixedToken = trimmed.match(/^(?:lark|feishu):([A-Za-z0-9_-]+)$/i);
-  if (prefixedToken?.[1]) return prefixedToken[1];
-  const urlToken = trimmed.match(/\/(?:docx?|docs|wiki)\/([A-Za-z0-9_-]+)/i);
-  if (urlToken?.[1]) return urlToken[1];
-  if (/^[A-Za-z0-9_-]+$/.test(trimmed)) return trimmed;
-  throw new Error(`Cannot extract Lark doc token from report URI: ${reportUri}`);
-}
-
-function extractLarkCliContent(stdout: string): string {
-  const text = stdout.trim();
-  if (!text) return '';
-  try {
-    const parsed = JSON.parse(text) as { data?: { markdown?: string; content?: string }; markdown?: string; content?: string };
-    return parsed.data?.markdown ?? parsed.data?.content ?? parsed.markdown ?? parsed.content ?? text;
-  } catch {
-    return text;
-  }
-}
-
-async function readLarkReport(reportUri: string): Promise<string> {
-  const docToken = larkDocToken(reportUri);
-  try {
-    const { stdout } = await execFileAsync('lark-cli', ['docs', '+fetch', '--doc', docToken, '--as', 'bot'], {
-      maxBuffer: 16 * 1024 * 1024,
-    });
-    const content = extractLarkCliContent(stdout);
-    if (!content.trim()) throw new Error('Lark report returned empty content');
-    return content;
-  } catch (err) {
-    if (err instanceof Error && err.message === 'Lark report returned empty content') throw err;
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Lark report reading failed via lark-cli: ${message}`);
-  }
-}
-
-function resolveWorkspaceReportPath(reportUri: string): string {
-  const root = workspaceRoot();
-  const resolved = path.isAbsolute(reportUri) ? path.resolve(reportUri) : path.resolve(root, reportUri);
-  const lexicalRelative = path.relative(root, resolved);
-  if (lexicalRelative.startsWith('..') || path.isAbsolute(lexicalRelative)) {
-    throw new Error(`Local report path escapes workspace: ${reportUri}`);
-  }
-  const ext = path.extname(resolved).toLowerCase();
-  if (!READABLE_REPORT_EXTENSIONS.has(ext)) {
-    throw new Error(`Local report type is not readable: ${ext || 'unknown'}`);
-  }
-  if (!fs.existsSync(resolved)) {
-    throw new Error(`Local report does not exist: ${reportUri}`);
-  }
-  const realRoot = fs.realpathSync(root);
-  const realResolved = fs.realpathSync(resolved);
-  const realRelative = path.relative(realRoot, realResolved);
-  if (realRelative.startsWith('..') || path.isAbsolute(realRelative)) {
-    throw new Error(`Local report path escapes workspace: ${reportUri}`);
-  }
-  return realResolved;
-}
-
-async function readFullReport(reportUri: string): Promise<{ content: string; sourceType: 'local' | 'lark' }> {
-  const sourceType = sourceTypeFromReportUri(reportUri);
-  if (sourceType === 'local') {
-    const content = fs.readFileSync(resolveWorkspaceReportPath(reportUri), 'utf8');
-    if (!content.trim()) throw new Error('Local report is empty');
-    return { content, sourceType };
-  }
-
-  return { content: await readLarkReport(reportUri), sourceType };
-}
-
-function cosineSimilarity(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length === 0) return 0;
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    const av = a[i];
-    const bv = b[i];
-    dot += av * bv;
-    normA += av * av;
-    normB += bv * bv;
-  }
-  return normA === 0 || normB === 0 ? 0 : dot / (Math.sqrt(normA) * Math.sqrt(normB));
-}
-
-async function embedResearchTopicName(name: string): Promise<number[]> {
-  const response = await fetch(RESEARCH_EMBEDDING_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ input: name, model: RESEARCH_EMBEDDING_MODEL }),
-  });
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw new Error(`Research topic embedding HTTP ${response.status}: ${body.slice(0, 200)}`);
-  }
-  const data = await response.json() as { data?: Array<{ embedding?: number[] }> };
-  const embedding = data.data?.[0]?.embedding;
-  if (!Array.isArray(embedding) || embedding.length === 0) throw new Error('Research topic embedding response missing embedding');
-  return embedding;
-}
-
-async function findSemanticResearchTopic(db: ReturnType<typeof openWebDb>, name: string): Promise<ResearchTopicRow | null> {
-  const candidates = db.prepare('SELECT * FROM research_topics ORDER BY updated_at DESC').all() as ResearchTopicRow[];
-  if (candidates.length === 0) return null;
-  if (shouldBypassExternalModelsInTests()) return null;
-
-  const target = await embedResearchTopicName(name);
-  let best: { topic: ResearchTopicRow; score: number } | null = null;
-  for (const topic of candidates) {
-    const existing = await embedResearchTopicName(topic.name);
-    const score = cosineSimilarity(target, existing);
-    if (!best || score > best.score) best = { topic, score };
-  }
-  return best && best.score >= RESEARCH_TOPIC_REUSE_MIN_SCORE ? best.topic : null;
-}
-
-function updateTopicReuse(db: ReturnType<typeof openWebDb>, topic: ResearchTopicRow, description?: string): ResearchTopicRow {
-  db.prepare('UPDATE research_topics SET updated_at = ?, description = COALESCE(description, ?) WHERE id = ?').run(Date.now(), description ?? null, topic.id);
-  return db.prepare('SELECT * FROM research_topics WHERE id = ?').get(topic.id) as ResearchTopicRow;
-}
-
-function refreshResearchTopicCounters(db: ReturnType<typeof openWebDb>, topicId: string): void {
-  const taskCount = (db.prepare('SELECT COUNT(*) AS count FROM research_tasks WHERE topic_id = ?').get(topicId) as { count: number }).count;
-  const reportCount = (db.prepare('SELECT COUNT(*) AS count FROM research_reports WHERE topic_id = ?').get(topicId) as { count: number }).count;
-  db.prepare('UPDATE research_topics SET task_count = ?, report_count = ?, updated_at = ? WHERE id = ?').run(taskCount, reportCount, Date.now(), topicId);
-}
-
-function insertResearchTopic(db: ReturnType<typeof openWebDb>, name: string, normalized: string, description?: string): ResearchTopicRow {
-  const now = Date.now();
-  const id = `topic_${randomUUID()}`;
-  db.prepare(`
-    INSERT INTO research_topics (id, name, normalized_name, description, created_at, updated_at, task_count, report_count)
-    VALUES (?, ?, ?, ?, ?, ?, 0, 0)
-  `).run(id, name, normalized, description ?? null, now, now);
-  return db.prepare('SELECT * FROM research_topics WHERE id = ?').get(id) as ResearchTopicRow;
-}
-
-function ensureTopicInDb(db: ReturnType<typeof openWebDb>, topicName: string, description?: string): ResearchTopicRow {
-  const name = topicName.trim();
-  if (!name) throw new Error('topicName is required');
-  const normalized = normalizeTopicName(name);
-  const existing = db.prepare('SELECT * FROM research_topics WHERE normalized_name = ?').get(normalized) as ResearchTopicRow | undefined;
-  return existing ? updateTopicReuse(db, existing, description) : insertResearchTopic(db, name, normalized, description);
-}
-
-async function ensureTopicInDbSemantic(db: ReturnType<typeof openWebDb>, topicName: string, description?: string): Promise<ResearchTopicRow> {
-  const name = topicName.trim();
-  if (!name) throw new Error('topicName is required');
-  const normalized = normalizeTopicName(name);
-  const existing = db.prepare('SELECT * FROM research_topics WHERE normalized_name = ?').get(normalized) as ResearchTopicRow | undefined;
-  if (existing) return updateTopicReuse(db, existing, description);
-  const semantic = await findSemanticResearchTopic(db, name);
-  return semantic ? updateTopicReuse(db, semantic, description) : insertResearchTopic(db, name, normalized, description);
-}
-
-function backfillLegacyResearchRegistry(db: ReturnType<typeof openWebDb>) {
-  const rows = db.prepare(`
-    SELECT id, topic_id, title, query, description, scope, report_path, result_path
-    FROM research_tasks
-    WHERE topic_id IS NULL OR topic_id = ''
-  `).all() as Array<{
-    id: string;
-    topic_id: string | null;
-    title: string | null;
-    query: string | null;
-    description: string | null;
-    scope: string | null;
-    report_path: string | null;
-    result_path: string | null;
-  }>;
-  for (const row of rows) {
-    const topicName = (row.title ?? row.query ?? row.description ?? row.scope ?? '未命名调研').trim() || '未命名调研';
-    const topic = ensureTopicInDb(db, topicName);
-    db.prepare("UPDATE research_tasks SET topic_id = ?, source_type = COALESCE(source_type, 'legacy'), actor_id = COALESCE(actor_id, requested_by), metadata_json = COALESCE(metadata_json, '{}') WHERE id = ?").run(topic.id, row.id);
-    const reportUri = row.result_path ?? row.report_path;
-    if (reportUri) {
-      db.prepare(`
-        INSERT INTO research_reports (
-          id, topic_id, task_id, title, report_uri, report_kind, created_at, updated_at, metadata_json
-        ) VALUES (?, ?, ?, ?, ?, 'markdown', ?, ?, ?)
-        ON CONFLICT(report_uri) DO UPDATE SET
-          topic_id = excluded.topic_id,
-          task_id = COALESCE(research_reports.task_id, excluded.task_id),
-          updated_at = excluded.updated_at
-      `).run(`report_${randomUUID()}`, topic.id, row.id, topicName, reportUri, Date.now(), Date.now(), jsonObject({ source: 'legacy-task' }));
-    }
-    refreshResearchTopicCounters(db, topic.id);
   }
 }
 
@@ -781,6 +315,106 @@ function mapResearchRow(row: ResearchTaskRow): ResearchTask {
   };
 }
 
+export function getResearchDashboardData(): ResearchDashboardData {
+  ensureResearchTables();
+  return {
+    autoResearchPaused: getAutoResearchPaused(),
+    tasks: selectResearchRows().map(mapResearchRow),
+    topics: selectResearchTopics(),
+  };
+}
+
+function selectResearchTopics(): ResearchTopic[] {
+  const db = openWebDb(true);
+  try {
+    const topics = db.prepare('SELECT * FROM research_topics ORDER BY COALESCE(updated_at, created_at, 0) DESC, id DESC').all() as Array<Record<string, unknown>>;
+    return topics.map((topic) => {
+      const topicId = String(topic.id);
+      const tasks = db.prepare('SELECT * FROM research_tasks WHERE topic_id = ? ORDER BY COALESCE(created_at, 0) DESC, id DESC').all(topicId) as Array<ResearchTaskRow & Record<string, unknown>>;
+      const reportsByTask = new Map<string, ResearchReport[]>();
+      const reports = db.prepare('SELECT * FROM research_reports WHERE topic_id = ? ORDER BY COALESCE(created_at, 0) DESC, id DESC').all(topicId) as Array<Record<string, unknown>>;
+      for (const report of reports) {
+        const mapped = mapResearchReportRow(db, report);
+        const taskId = String(report.task_id);
+        reportsByTask.set(taskId, [...(reportsByTask.get(taskId) ?? []), mapped]);
+      }
+      return {
+        id: topicId,
+        name: String(topic.name ?? ''),
+        normalizedName: String(topic.normalized_name ?? ''),
+        description: topic.description as string | null | undefined,
+        createdAt: topic.created_at as number | string | null | undefined,
+        updatedAt: topic.updated_at as number | string | null | undefined,
+        taskCount: Number(topic.task_count ?? tasks.length),
+        reportCount: Number(topic.report_count ?? reports.length),
+        referenceReportCount: Number(topic.reference_report_count ?? reports.filter((r) => Number(r.is_reference ?? 0) === 1).length),
+        wikiEntryCount: Number(topic.wiki_entry_count ?? 0),
+        tasks: tasks.map((task) => mapRegistryTaskRow(task, reportsByTask.get(task.id) ?? [])),
+      };
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function mapRegistryTaskRow(row: ResearchTaskRow & Record<string, unknown>, reports: ResearchReport[]): ResearchTaskRegistryItem {
+  return {
+    id: row.id,
+    title: row.title ?? row.query ?? row.description ?? row.id,
+    query: row.query,
+    status: normalizeStatus(row.status),
+    sourceType: row.source_type as string | null | undefined,
+    sourceRef: row.source_ref as string | null | undefined,
+    actorId: row.actor_id as string | null | undefined,
+    executorId: row.executor_id as string | null | undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    cancelledAt: row.cancelled_at as number | string | null | undefined,
+    failureReason: row.failure_reason,
+    reportPath: row.report_path,
+    resultPath: row.result_path,
+    reports,
+  };
+}
+
+function mapResearchReportRow(db: ReturnType<typeof openWebDb>, row: Record<string, unknown>): ResearchReport {
+  const reportId = String(row.id);
+  const batches = db.prepare('SELECT * FROM research_reference_batches WHERE report_id = ? ORDER BY COALESCE(confirmed_at, 0) DESC, id DESC').all(reportId) as Array<Record<string, unknown>>;
+  const entries = db.prepare('SELECT entry_id, title, summary FROM research_report_entries WHERE report_id = ? ORDER BY entry_id').all(reportId) as Array<{ entry_id: string; title?: string; summary?: string }>;
+  return {
+    id: reportId,
+    title: String(row.title ?? ''),
+    reportUri: String(row.report_uri ?? ''),
+    reportKind: row.report_kind as string | undefined,
+    contentHash: row.content_hash as string | undefined,
+    externalContentHash: row.external_content_hash as string | undefined,
+    isReference: Number(row.is_reference ?? 0) === 1,
+    referenceMarkedAt: row.reference_marked_at as number | string | null | undefined,
+    referenceMarkedBy: row.reference_marked_by as string | null | undefined,
+    sourceType: row.source_type as string | undefined,
+    failureReason: row.failure_reason as string | null | undefined,
+    batchStatus: batches[0]?.status as ResearchReferenceBatchStatus | undefined,
+    insertedCount: Number(batches[0]?.inserted_count ?? entries.length),
+    wikiEntryCount: entries.length,
+    wikiEntries: entries.map((entry) => ({ id: entry.entry_id, title: entry.title, summary: entry.summary })),
+    entryIds: entries.map((entry) => entry.entry_id),
+    referenceBatches: batches.map((batch) => ({
+      id: String(batch.id),
+      status: batch.status as ResearchReferenceBatchStatus,
+      sourceType: batch.source_type as string | undefined,
+      contentHash: batch.content_hash as string | undefined,
+      confirmedBy: String(batch.confirmed_by ?? ''),
+      confirmedAt: batch.confirmed_at as number | string | null | undefined,
+      extractedAt: batch.extracted_at as number | string | null | undefined,
+      failureReason: batch.error_message as string | null | undefined,
+      insertedCount: Number(batch.inserted_count ?? 0),
+      duplicateOfBatchId: batch.duplicate_of_batch_id as string | undefined,
+    })),
+  };
+}
+
 function summarizeReport(content: string, resultPath?: string): string {
   const firstUseful = content
     .split('\n')
@@ -831,182 +465,6 @@ function selectResearchRows(): ResearchTaskRow[] {
   }
 }
 
-function selectResearchTopics(): ResearchDashboardData['topics'] {
-  const db = openWebDb(true);
-  try {
-    const topics = db.prepare('SELECT * FROM research_topics ORDER BY updated_at DESC, created_at DESC').all() as ResearchTopicRow[];
-    const tasks = db.prepare(`
-      SELECT id, topic_id, title, query, status, source_type, source_ref, actor_id, executor_id,
-             created_at, updated_at, started_at, completed_at, cancelled_at, failure_reason,
-             report_path, result_path, metadata_json
-      FROM research_tasks
-      WHERE topic_id IS NOT NULL AND topic_id != ''
-      ORDER BY COALESCE(created_at, 0) DESC, id DESC
-    `).all() as ResearchTaskRegistryRow[];
-    const reports = db.prepare('SELECT * FROM research_reports ORDER BY created_at DESC, id DESC').all() as ResearchReportRow[];
-    const batches = db.prepare('SELECT * FROM research_reference_batches ORDER BY confirmed_at DESC, id DESC').all() as ReferenceBatchRow[];
-    const hasEntriesTable = Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'entries'").get());
-    const entryRows = (hasEntriesTable
-      ? db.prepare(`
-          SELECT r.report_id, r.entry_id, e.title
-          FROM research_report_entries r
-          LEFT JOIN entries e ON e.id = r.entry_id
-          ORDER BY r.created_at ASC
-        `)
-      : db.prepare(`
-          SELECT report_id, entry_id, NULL AS title
-          FROM research_report_entries
-          ORDER BY created_at ASC
-        `)
-    ).all() as Array<{ report_id: string; entry_id: string; title: string | null }>;
-
-    const tasksByTopic = new Map<string, ResearchTaskRegistryRow[]>();
-    for (const task of tasks) {
-      if (!task.topic_id) continue;
-      const list = tasksByTopic.get(task.topic_id) ?? [];
-      list.push(task);
-      tasksByTopic.set(task.topic_id, list);
-    }
-
-    const reportsByTask = new Map<string, ResearchReportRow[]>();
-    const reportsByTopicWithoutTask = new Map<string, ResearchReportRow[]>();
-    for (const report of reports) {
-      if (report.task_id) {
-        const list = reportsByTask.get(report.task_id) ?? [];
-        list.push(report);
-        reportsByTask.set(report.task_id, list);
-      } else {
-        const list = reportsByTopicWithoutTask.get(report.topic_id) ?? [];
-        list.push(report);
-        reportsByTopicWithoutTask.set(report.topic_id, list);
-      }
-    }
-
-    const batchesByReport = new Map<string, ReferenceBatchRow[]>();
-    for (const batch of batches) {
-      const list = batchesByReport.get(batch.report_id) ?? [];
-      list.push(batch);
-      batchesByReport.set(batch.report_id, list);
-    }
-
-    const entriesByReport = new Map<string, Array<{ id: string; title?: string }>>();
-    for (const entry of entryRows) {
-      const list = entriesByReport.get(entry.report_id) ?? [];
-      list.push({ id: entry.entry_id, title: entry.title ?? undefined });
-      entriesByReport.set(entry.report_id, list);
-    }
-
-    const mapBatch = (batch: ReferenceBatchRow) => {
-      const metadata = parseJsonObject(batch.metadata_json);
-      return {
-        id: batch.id,
-        status: batch.status as ResearchReferenceBatchStatus,
-        sourceType: batch.source_type ?? undefined,
-        contentHash: batch.content_hash ?? undefined,
-        confirmedBy: batch.confirmed_by,
-        confirmedAt: batch.confirmed_at,
-        extractedAt: batch.extracted_at,
-        failureReason: batch.error_message,
-        insertedCount: batch.inserted_count ?? 0,
-        duplicateOfBatchId: typeof metadata.duplicateOfBatchId === 'string' ? metadata.duplicateOfBatchId : undefined,
-      };
-    };
-
-    const mapReport = (report: ResearchReportRow) => {
-      const reportBatches = (batchesByReport.get(report.id) ?? []).map(mapBatch);
-      const latestBatch = reportBatches[0];
-      const wikiEntries = entriesByReport.get(report.id) ?? [];
-      return {
-        id: report.id,
-        title: report.title,
-        reportUri: report.report_uri,
-        reportKind: report.report_kind ?? undefined,
-        contentHash: report.content_hash ?? undefined,
-        externalContentHash: report.external_content_hash ?? undefined,
-        isReference: Boolean(report.is_reference),
-        referenceMarkedAt: report.reference_marked_at,
-        referenceMarkedBy: report.reference_marked_by,
-        sourceType: latestBatch?.sourceType ?? sourceTypeFromReportUri(report.report_uri),
-        failureReason: report.failure_reason,
-        batchStatus: latestBatch?.status,
-        insertedCount: latestBatch?.insertedCount,
-        wikiEntryCount: wikiEntries.length,
-        wikiEntries,
-        entryIds: wikiEntries.map((entry) => entry.id),
-        referenceBatches: reportBatches,
-      };
-    };
-
-    return topics.map((topic) => {
-      const topicTasks = (tasksByTopic.get(topic.id) ?? []).map((task) => ({
-        id: task.id,
-        title: (task.title ?? task.query ?? '未命名调研任务').trim() || '未命名调研任务',
-        query: task.query,
-        status: normalizeStatus(task.status),
-        sourceType: task.source_type,
-        sourceRef: task.source_ref,
-        actorId: task.actor_id,
-        executorId: task.executor_id,
-        createdAt: task.created_at,
-        updatedAt: task.updated_at,
-        startedAt: task.started_at,
-        completedAt: task.completed_at,
-        cancelledAt: task.cancelled_at,
-        failureReason: task.failure_reason,
-        reportPath: task.report_path,
-        resultPath: task.result_path,
-        reports: (reportsByTask.get(task.id) ?? []).map(mapReport),
-      }));
-      const orphanReports = reportsByTopicWithoutTask.get(topic.id) ?? [];
-      if (orphanReports.length > 0) {
-        topicTasks.push({
-          id: `${topic.id}:reports`,
-          title: '未关联任务报告',
-          query: null,
-          status: 'completed',
-          sourceType: 'registry',
-          sourceRef: null,
-          actorId: null,
-          executorId: null,
-          createdAt: topic.created_at,
-          updatedAt: topic.updated_at,
-          startedAt: null,
-          completedAt: null,
-          cancelledAt: null,
-          failureReason: null,
-          reportPath: null,
-          resultPath: null,
-          reports: orphanReports.map(mapReport),
-        });
-      }
-      const flatReports = topicTasks.flatMap((task) => task.reports);
-      return {
-        id: topic.id,
-        name: topic.name,
-        normalizedName: topic.normalized_name,
-        description: topic.description,
-        createdAt: topic.created_at,
-        updatedAt: topic.updated_at,
-        taskCount: topic.task_count ?? topicTasks.length,
-        reportCount: topic.report_count ?? flatReports.length,
-        referenceReportCount: flatReports.filter((report) => report.isReference).length,
-        wikiEntryCount: flatReports.reduce((sum, report) => sum + report.wikiEntryCount, 0),
-        tasks: topicTasks,
-      };
-    });
-  } finally {
-    db.close();
-  }
-}
-
-export function getResearchDashboardData(): ResearchDashboardData {
-  ensureResearchTables();
-  return {
-    autoResearchPaused: getAutoResearchPaused(),
-    tasks: selectResearchRows().map(mapResearchRow),
-    topics: selectResearchTopics(),
-  };
-}
 
 export function getResearchTaskDetail(id: string): ResearchTaskDetailData | null {
   ensureResearchTables();
@@ -1034,7 +492,7 @@ export function getResearchTaskDetail(id: string): ResearchTaskDetailData | null
   }
 }
 
-export async function createResearchTask(input: CreateResearchTaskInput): Promise<ResearchDashboardData> {
+export function createResearchTask(input: CreateResearchTaskInput): ResearchDashboardData {
   ensureResearchTables();
   const id = randomUUID();
   const now = Date.now();
@@ -1044,15 +502,13 @@ export async function createResearchTask(input: CreateResearchTaskInput): Promis
 
   const db = openWebDb(false);
   try {
-    const topic = await ensureTopicInDbSemantic(db, input.topic ?? query);
     db.prepare(`
       INSERT INTO research_tasks (
-        id, topic_id, query, requested_by, title, description, scope, priority, budget_credits, expected_types_json,
-        status, source_type, actor_id, created_at, updated_at, highlighted, report_path, result_path, produced_entry_ids_json, metadata_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'web', ?, ?, ?, 0, NULL, NULL, '[]', '{}')
+        id, query, requested_by, title, description, scope, priority, budget_credits, expected_types_json,
+        status, created_at, updated_at, highlighted, report_path, result_path, produced_entry_ids_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, 0, NULL, NULL, '[]')
     `).run(
       id,
-      topic.id,
       query,
       requestedBy,
       query,
@@ -1061,11 +517,9 @@ export async function createResearchTask(input: CreateResearchTaskInput): Promis
       input.priority,
       input.budgetCredits,
       JSON.stringify(input.expectedTypes),
-      requestedBy,
       now,
       now,
     );
-    refreshResearchTopicCounters(db, topic.id);
   } finally {
     db.close();
   }
@@ -1120,20 +574,6 @@ function completeResearchTask(id: string, reportPath: string) {
       SET status = 'completed', updated_at = ?, completed_at = ?, report_path = ?, result_path = ?, failure_reason = NULL
       WHERE id = ?
     `).run(now, now, reportPath, reportPath, id);
-    const row = db.prepare('SELECT topic_id, COALESCE(title, query, description, id) AS title FROM research_tasks WHERE id = ?').get(id) as { topic_id: string | null; title: string } | undefined;
-    if (row?.topic_id) {
-      db.prepare(`
-        INSERT INTO research_reports (
-          id, topic_id, task_id, title, report_uri, report_kind, created_at, updated_at, metadata_json
-        ) VALUES (?, ?, ?, ?, ?, 'markdown', ?, ?, ?)
-        ON CONFLICT(report_uri) DO UPDATE SET
-          task_id = COALESCE(research_reports.task_id, excluded.task_id),
-          topic_id = excluded.topic_id,
-          updated_at = excluded.updated_at,
-          failure_reason = NULL
-      `).run(`report_${randomUUID()}`, row.topic_id, id, row.title, reportPath, now, now, jsonObject({ source: 'legacy-completion' }));
-      refreshResearchTopicCounters(db, row.topic_id);
-    }
   } finally {
     db.close();
   }
@@ -1288,6 +728,210 @@ function buildLocalSynthesis(query: string, scope: string, sources: Array<{ titl
   };
 }
 
+
+function normalizeTopicName(name: string): string {
+  return name.toLowerCase().replace(/\s+/g, '').replace(/调研|研究/g, '');
+}
+
+function cosine(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length === 0) return 0;
+  let dot = 0, aa = 0, bb = 0;
+  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; aa += a[i] * a[i]; bb += b[i] * b[i]; }
+  const denom = Math.sqrt(aa) * Math.sqrt(bb);
+  return denom === 0 ? 0 : dot / denom;
+}
+
+async function embedTopic(name: string): Promise<number[] | null> {
+  if (shouldBypassExternalModelsInTests()) return null;
+  try {
+    const response = await fetch('http://localhost:9876/embeddings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input: name }),
+    });
+    if (!response.ok) return null;
+    const data = await response.json() as { data?: Array<{ embedding?: number[] }> };
+    return data.data?.[0]?.embedding ?? null;
+  } catch { return null; }
+}
+
+async function resolveTopic(topicName: string): Promise<{ id: string; name: string; normalizedName: string }> {
+  ensureResearchTables();
+  const normalizedName = normalizeTopicName(topicName);
+  const db = openWebDb(false);
+  try {
+    const exact = db.prepare('SELECT id, name, normalized_name FROM research_topics WHERE normalized_name = ?').get(normalizedName) as { id: string; name: string; normalized_name: string } | undefined;
+    if (exact) return { id: exact.id, name: exact.name, normalizedName: exact.normalized_name };
+  } finally { db.close(); }
+
+  const embedding = await embedTopic(topicName);
+  const db2 = openWebDb(false);
+  try {
+    if (embedding) {
+      const topics = db2.prepare('SELECT id, name, normalized_name, embedding_json FROM research_topics').all() as Array<{ id: string; name: string; normalized_name: string; embedding_json: string | null }>;
+      let best: { id: string; name: string; normalized_name: string } | null = null;
+      let bestScore = 0;
+      for (const topic of topics) {
+        if (!topic.embedding_json) continue;
+        try {
+          const vector = JSON.parse(topic.embedding_json) as number[];
+          const score = cosine(embedding, vector);
+          if (score > bestScore) { bestScore = score; best = topic; }
+        } catch { /* ignore invalid vector */ }
+      }
+      if (best && bestScore >= 0.95) return { id: best.id, name: best.name, normalizedName: best.normalized_name };
+    }
+    const now = Date.now();
+    const id = `topic-${randomUUID()}`;
+    db2.prepare('INSERT INTO research_topics (id, name, normalized_name, embedding_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, topicName, normalizedName, embedding ? JSON.stringify(embedding) : null, now, now);
+    return { id, name: topicName, normalizedName };
+  } finally { db2.close(); }
+}
+
+function refreshTopicCounts(topicId: string): void {
+  const db = openWebDb(false);
+  try {
+    const taskCount = (db.prepare('SELECT COUNT(*) AS c FROM research_tasks WHERE topic_id = ?').get(topicId) as { c: number }).c;
+    const reportCount = (db.prepare('SELECT COUNT(*) AS c FROM research_reports WHERE topic_id = ?').get(topicId) as { c: number }).c;
+    const referenceReportCount = (db.prepare('SELECT COUNT(*) AS c FROM research_reports WHERE topic_id = ? AND is_reference = 1').get(topicId) as { c: number }).c;
+    const wikiEntryCount = (db.prepare('SELECT COUNT(*) AS c FROM research_report_entries e JOIN research_reports r ON r.id = e.report_id WHERE r.topic_id = ?').get(topicId) as { c: number }).c;
+    db.prepare('UPDATE research_topics SET task_count = ?, report_count = ?, reference_report_count = ?, wiki_entry_count = ?, updated_at = ? WHERE id = ?')
+      .run(taskCount, reportCount, referenceReportCount, wikiEntryCount, Date.now(), topicId);
+  } finally { db.close(); }
+}
+
+function sourceTypeForUri(uri: string): string {
+  return uri.startsWith('lark:') || uri.startsWith('feishu:') ? 'lark' : 'local';
+}
+
+function readReferenceContent(reportUri: string): { sourceType: string; content?: string; failure?: string } {
+  const sourceType = sourceTypeForUri(reportUri);
+  if (sourceType === 'lark') {
+    try {
+      const out = execFileSync('lark-cli', ['doc', 'read', reportUri], { encoding: 'utf8', timeout: 30000 });
+      const parsed = JSON.parse(out) as { data?: { markdown?: string; content?: string } };
+      const content = parsed.data?.markdown ?? parsed.data?.content ?? '';
+      return content.trim() ? { sourceType, content } : { sourceType, failure: 'lark-cli returned empty content' };
+    } catch (err) {
+      return { sourceType, failure: `lark-cli failed: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+  const abs = reportAbsolutePath(reportUri);
+  const root = projectRoot();
+  if (!abs || !abs.startsWith(root + path.sep)) return { sourceType, failure: `Report path escapes workspace: ${reportUri}` };
+  if (!fs.existsSync(abs)) return { sourceType, failure: `Report not found: ${reportUri}` };
+  return { sourceType, content: fs.readFileSync(abs, 'utf8') };
+}
+
+async function extractEntriesFromReport(taskId: string, reportId: string, topicName: string, content: string): Promise<Array<{ id: string; title: string; summary?: string }>> {
+  const entryId = `research-${reportId}-fact`;
+  const title = content.split('\n').map((line) => line.replace(/^#+\s*/, '').trim()).find(Boolean) ?? topicName;
+  const entry: KnowledgeEntry = {
+    id: entryId,
+    type: 'fact',
+    title,
+    summary: title,
+    content: content.trim(),
+    source: { type: 'research', reference: `research:${reportId}`, timestamp: new Date(), context: taskId },
+    confidence: 0.9,
+    status: 'active',
+    tags: ['research'],
+    domain: topicName,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    version: 1,
+  };
+  await persistEntry(entry);
+  return [{ id: entryId, title, summary: title }];
+}
+
+export async function registerResearchTask(input: { topicName: string; taskTitle: string; query?: string; sourceType?: string; sourceRef?: string; actorId?: string; executorId?: string; metadata?: object }) {
+  const topic = await resolveTopic(input.topicName.trim());
+  const now = Date.now();
+  const taskId = `task-${randomUUID()}`;
+  const db = openWebDb(false);
+  try {
+    db.prepare(`INSERT INTO research_tasks (id, topic_id, query, requested_by, title, description, scope, priority, budget_credits, expected_types_json, status, source_type, source_ref, actor_id, executor_id, created_at, updated_at, highlighted, produced_entry_ids_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'medium', 20, ?, 'pending', ?, ?, ?, ?, ?, ?, 0, '[]')`)
+      .run(taskId, topic.id, input.query ?? input.taskTitle, input.actorId ?? 'unknown', input.taskTitle, input.taskTitle, input.topicName, JSON.stringify(DEFAULT_EXPECTED_TYPES), input.sourceType ?? null, input.sourceRef ?? null, input.actorId ?? null, input.executorId ?? null, now, now);
+  } finally { db.close(); }
+  refreshTopicCounts(topic.id);
+  return { topic, task: { id: taskId, title: input.taskTitle } };
+}
+
+export function registerResearchReport(input: { taskId: string; reportUri: string; title?: string; reportKind?: string; externalContentHash?: string; metadata?: object }) {
+  ensureResearchTables();
+  const db = openWebDb(false);
+  try {
+    const task = db.prepare('SELECT topic_id FROM research_tasks WHERE id = ?').get(input.taskId) as { topic_id: string | null } | undefined;
+    const id = `report-${randomUUID()}`;
+    const now = Date.now();
+    const sourceType = sourceTypeForUri(input.reportUri);
+    db.prepare(`INSERT INTO research_reports (id, task_id, topic_id, title, report_uri, report_kind, external_content_hash, source_type, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, input.taskId, task?.topic_id ?? null, input.title ?? input.reportUri, input.reportUri, input.reportKind ?? null, input.externalContentHash ?? null, sourceType, now, now);
+    if (task?.topic_id) refreshTopicCounts(task.topic_id);
+    return { id, taskId: input.taskId, title: input.title ?? input.reportUri, reportUri: input.reportUri };
+  } finally { db.close(); }
+}
+
+export function updateRegisteredResearchTaskStatus(input: { taskId: string; status: 'running' | 'completed' | 'failed' | 'cancelled'; reason?: string; reportUri?: string; reportTitle?: string; executorId?: string }) {
+  ensureResearchTables();
+  const db = openWebDb(false);
+  let topicId: string | null = null;
+  try {
+    const now = Date.now();
+    const dbStatus = input.status === 'running' ? 'executing' : input.status;
+    const row = db.prepare('SELECT topic_id FROM research_tasks WHERE id = ?').get(input.taskId) as { topic_id: string | null } | undefined;
+    topicId = row?.topic_id ?? null;
+    db.prepare(`UPDATE research_tasks SET status = ?, failure_reason = ?, executor_id = COALESCE(?, executor_id), updated_at = ?, started_at = CASE WHEN ? = 'executing' THEN COALESCE(started_at, ?) ELSE started_at END, completed_at = CASE WHEN ? IN ('completed', 'failed', 'cancelled') THEN ? ELSE completed_at END, cancelled_at = CASE WHEN ? = 'cancelled' THEN ? ELSE cancelled_at END, report_path = COALESCE(?, report_path), result_path = COALESCE(?, result_path) WHERE id = ?`)
+      .run(dbStatus, input.reason ?? null, input.executorId ?? null, now, dbStatus, now, dbStatus, now, dbStatus, now, input.reportUri ?? null, input.reportUri ?? null, input.taskId);
+  } finally { db.close(); }
+  if (input.status === 'completed' && input.reportUri) {
+    registerResearchReport({ taskId: input.taskId, title: input.reportTitle, reportUri: input.reportUri });
+  } else if (topicId) refreshTopicCounts(topicId);
+  return getResearchTaskDetail(input.taskId) ?? { id: input.taskId, status: input.status };
+}
+
+export async function confirmResearchReportReference(input: { reportId: string; confirmedBy: string }) {
+  ensureResearchTables();
+  const db = openWebDb(false);
+  const report = db.prepare('SELECT * FROM research_reports WHERE id = ?').get(input.reportId) as Record<string, unknown> | undefined;
+  db.close();
+  if (!report) return null;
+  const read = readReferenceContent(String(report.report_uri));
+  const batchId = `batch-${randomUUID()}`;
+  const now = Date.now();
+  const writeBatch = (status: ResearchReferenceBatchStatus, values: { hash?: string; inserted?: number; duplicateOf?: string; error?: string; entries?: Array<{ id: string; title: string; summary?: string }> }) => {
+    const wdb = openWebDb(false);
+    try {
+      wdb.prepare(`INSERT INTO research_reference_batches (id, report_id, status, source_type, content_hash, confirmed_by, confirmed_at, extracted_at, inserted_count, duplicate_of_batch_id, error_message)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(batchId, input.reportId, status, read.sourceType, values.hash ?? null, input.confirmedBy, now, now, values.inserted ?? 0, values.duplicateOf ?? null, values.error ?? null);
+      if (status === 'completed') {
+        wdb.prepare('UPDATE research_reports SET content_hash = ?, is_reference = 1, reference_marked_at = ?, reference_marked_by = ?, source_type = ?, failure_reason = NULL, updated_at = ? WHERE id = ?')
+          .run(values.hash, now, input.confirmedBy, read.sourceType, now, input.reportId);
+        for (const entry of values.entries ?? []) {
+          wdb.prepare('INSERT OR IGNORE INTO research_report_entries (report_id, entry_id, title, summary) VALUES (?, ?, ?, ?)').run(input.reportId, entry.id, entry.title, entry.summary ?? null);
+        }
+      } else if (status === 'failed') {
+        wdb.prepare('UPDATE research_reports SET failure_reason = ?, source_type = ?, updated_at = ? WHERE id = ?').run(values.error, read.sourceType, now, input.reportId);
+      }
+    } finally { wdb.close(); }
+    if (report.topic_id) refreshTopicCounts(String(report.topic_id));
+    return { id: batchId, reportId: input.reportId, status, sourceType: read.sourceType, contentHash: values.hash, insertedCount: values.inserted ?? 0, duplicateOfBatchId: values.duplicateOf, failureReason: values.error };
+  };
+  if (read.failure || !read.content) return writeBatch('failed', { error: read.failure ?? 'empty content' });
+  const normalized = read.content.trim();
+  const hash = createHash('sha256').update(normalized, 'utf8').digest('hex');
+  const existingDb = openWebDb(true);
+  try {
+    const existing = existingDb.prepare("SELECT id FROM research_reference_batches WHERE report_id = ? AND content_hash = ? AND status = 'completed' LIMIT 1").get(input.reportId, hash) as { id: string } | undefined;
+    if (existing) return writeBatch('duplicate', { hash, duplicateOf: existing.id });
+  } finally { existingDb.close(); }
+  const entries = await extractEntriesFromReport(String(report.task_id), input.reportId, String(report.title ?? ''), normalized);
+  return writeBatch('completed', { hash, inserted: entries.length, entries });
+}
+
 export function updateResearchTaskPriority(id: string, priority: Priority): ResearchDashboardData | null {
   ensureResearchTables();
   const db = openWebDb(false);
@@ -1358,379 +1002,6 @@ export async function adoptResearchTask(id: string): Promise<ResearchDashboardDa
   appendActivityEvent({ type: 'research_adopted', label: '调研报告采纳', summary: `调研报告「${task.topic}」已采纳入知识库。`, href: '/research', tags: ['research', 'adopted'] });
   writeOperationLog('knowledge_change', `调研采纳: ${task.topic}`, `入库 ${entryIds.length} 条知识`, { action: 'research_adopt', task_id: id, report_path: task.reportPath, entry_ids: entryIds });
   return getResearchDashboardData();
-}
-
-export async function registerResearchTask(input: RegisterResearchTaskInput): Promise<{ topic: ResearchTopicRow; task: ResearchTaskRegistryRow }> {
-  ensureResearchTables();
-  const title = input.taskTitle.trim();
-  if (!title) throw new Error('taskTitle is required');
-  const now = Date.now();
-  const db = openWebDb(false);
-  try {
-    const topic = await ensureTopicInDbSemantic(db, input.topicName);
-    const id = `task_${randomUUID()}`;
-    db.prepare(`
-      INSERT INTO research_tasks (
-        id, topic_id, title, query, description, scope, status, source_type, source_ref, actor_id, executor_id,
-        requested_by, created_at, updated_at, started_at, highlighted, produced_entry_ids_json, metadata_json
-      ) VALUES (?, ?, ?, ?, ?, ?, 'executing', ?, ?, ?, ?, ?, ?, ?, ?, 0, '[]', ?)
-    `).run(
-      id,
-      topic.id,
-      title,
-      input.query ?? title,
-      input.query ?? title,
-      input.topicName,
-      input.sourceType ?? 'agent',
-      input.sourceRef ?? null,
-      input.actorId ?? null,
-      input.executorId ?? null,
-      input.actorId ?? 'agent',
-      now,
-      now,
-      now,
-      jsonObject(input.metadata),
-    );
-    refreshResearchTopicCounters(db, topic.id);
-    const task = db.prepare('SELECT * FROM research_tasks WHERE id = ?').get(id) as ResearchTaskRegistryRow;
-    return { topic, task };
-  } finally {
-    db.close();
-  }
-}
-
-export function registerResearchReport(input: RegisterResearchReportInput): ResearchReportRow {
-  ensureResearchTables();
-  const reportUri = input.reportUri.trim();
-  if (!reportUri) throw new Error('reportUri is required');
-  const now = Date.now();
-  const db = openWebDb(false);
-  try {
-    const task = db.prepare('SELECT id, topic_id, title, query FROM research_tasks WHERE id = ?').get(input.taskId) as { id: string; topic_id: string | null; title: string | null; query: string | null } | undefined;
-    if (!task?.topic_id) throw new Error(`Research task not found: ${input.taskId}`);
-    const title = (input.title ?? task.title ?? task.query ?? '调研报告').trim();
-    db.prepare(`
-      INSERT INTO research_reports (
-        id, topic_id, task_id, title, report_uri, report_kind, external_content_hash, created_at, updated_at, metadata_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(report_uri) DO UPDATE SET
-        topic_id = excluded.topic_id,
-        task_id = excluded.task_id,
-        title = excluded.title,
-        report_kind = excluded.report_kind,
-        external_content_hash = excluded.external_content_hash,
-        updated_at = excluded.updated_at,
-        failure_reason = NULL
-    `).run(
-      `report_${randomUUID()}`,
-      task.topic_id,
-      input.taskId,
-      title,
-      reportUri,
-      input.reportKind ?? 'markdown',
-      input.externalContentHash ?? null,
-      now,
-      now,
-      jsonObject(input.metadata),
-    );
-    refreshResearchTopicCounters(db, task.topic_id);
-    return db.prepare('SELECT * FROM research_reports WHERE report_uri = ?').get(reportUri) as ResearchReportRow;
-  } finally {
-    db.close();
-  }
-}
-
-export function updateRegisteredResearchTaskStatus(input: UpdateRegisteredResearchTaskStatusInput): ResearchTaskRegistryRow {
-  ensureResearchTables();
-  if (!REGISTRY_STATUSES.has(input.status)) throw new Error(`Invalid research task status: ${input.status}`);
-  const dbStatus = input.status === 'running' ? 'executing' : input.status;
-  const now = Date.now();
-  const db = openWebDb(false);
-  try {
-    const task = db.prepare('SELECT * FROM research_tasks WHERE id = ?').get(input.taskId) as ResearchTaskRegistryRow | undefined;
-    if (!task) throw new Error(`Research task not found: ${input.taskId}`);
-    const currentStatus = normalizeStatus(task.status);
-    const isTerminal = currentStatus === 'completed' || currentStatus === 'failed' || currentStatus === 'cancelled';
-    if (isTerminal && input.status !== currentStatus) {
-      throw new Error(`Research task ${input.taskId} is already terminal: ${currentStatus}`);
-    }
-    db.prepare(`
-      UPDATE research_tasks
-      SET status = ?,
-          updated_at = ?,
-          completed_at = CASE WHEN ? IN ('completed', 'failed') THEN ? ELSE completed_at END,
-          cancelled_at = CASE WHEN ? = 'cancelled' THEN ? ELSE cancelled_at END,
-          failure_reason = CASE WHEN ? IN ('failed', 'cancelled') THEN ? ELSE NULL END,
-          executor_id = COALESCE(?, executor_id)
-      WHERE id = ?
-    `).run(dbStatus, now, dbStatus, now, dbStatus, now, dbStatus, input.reason ?? null, input.executorId ?? null, input.taskId);
-    if (input.reportUri) {
-      registerResearchReport({
-        taskId: input.taskId,
-        title: input.reportTitle ?? task.title ?? undefined,
-        reportUri: input.reportUri,
-      });
-      db.prepare('UPDATE research_tasks SET report_path = ?, result_path = ? WHERE id = ?').run(input.reportUri, input.reportUri, input.taskId);
-    }
-    return db.prepare('SELECT * FROM research_tasks WHERE id = ?').get(input.taskId) as ResearchTaskRegistryRow;
-  } finally {
-    db.close();
-  }
-}
-
-type ExtractedResearchEntry = {
-  type?: string;
-  title?: string;
-  summary?: string;
-  content?: string;
-  confidence?: number;
-  tags?: string[];
-  domain?: string;
-};
-
-function normalizeExtractedEntries(value: unknown): ExtractedResearchEntry[] {
-  const entries = (value as { entries?: unknown })?.entries;
-  if (!Array.isArray(entries)) return [];
-  return entries
-    .filter((item): item is Record<string, unknown> => item !== null && typeof item === 'object')
-    .map((item) => ({
-      type: typeof item.type === 'string' ? item.type : 'fact',
-      title: typeof item.title === 'string' ? item.title.slice(0, 120) : '调研结论',
-      summary: typeof item.summary === 'string' ? item.summary : undefined,
-      content: typeof item.content === 'string' ? item.content : undefined,
-      confidence: typeof item.confidence === 'number' ? item.confidence : 0.86,
-      tags: Array.isArray(item.tags) ? item.tags.filter((tag): tag is string => typeof tag === 'string') : [],
-      domain: typeof item.domain === 'string' ? item.domain : undefined,
-    }))
-    .filter((item) => item.title && item.content)
-    .slice(0, 12);
-}
-
-async function extractEntriesWithLlm(report: ResearchReportRow, topic: ResearchTopicRow, content: string): Promise<{ entries: ExtractedResearchEntry[]; model?: string }> {
-  const response = await chatJson<{ entries?: ExtractedResearchEntry[] }>([
-    {
-      role: 'system',
-      content: [
-        '你是 KIVO 的调研报告入库提取器。必须只输出 JSON 对象。',
-        '从整篇报告中提取可复用 Wiki 条目，不要编造报告中没有的内容。',
-        'JSON schema: {"entries":[{"type":"fact|decision|methodology|experience","title":"<=80字","summary":"一句话","content":"可追溯正文","confidence":0.0-1.0,"tags":["..."],"domain":"领域"}]}',
-      ].join('\n'),
-    },
-    {
-      role: 'user',
-      content: `调研主题：${topic.name}\n报告标题：${report.title}\n报告 URI：${report.report_uri}\n\n报告全文：\n${content}`,
-    },
-  ], { temperature: 0.1, maxTokens: 1800 });
-  return { entries: normalizeExtractedEntries(response.data), model: response.raw.model };
-}
-
-function buildEntryFromExtraction(
-  item: ExtractedResearchEntry,
-  report: ResearchReportRow,
-  topic: ResearchTopicRow,
-  batchId: string,
-  confirmedBy: string,
-): KnowledgeEntry {
-  const now = new Date();
-  const type = ['fact', 'decision', 'methodology', 'experience'].includes(item.type ?? '') ? item.type as KnowledgeEntry['type'] : 'fact';
-  const confidence = Math.max(0, Math.min(1, item.confidence ?? 0.86));
-  return {
-    id: `research-${batchId}-${randomUUID()}`,
-    type,
-    title: item.title ?? '调研结论',
-    summary: item.summary ?? item.title ?? '调研报告提取条目',
-    content: item.content ?? item.summary ?? item.title ?? '',
-    source: {
-      type: 'research',
-      reference: report.report_uri,
-      timestamp: now,
-      context: `${topic.id}/${report.id}/${batchId}`,
-      agent: confirmedBy,
-    },
-    confidence,
-    status: 'active',
-    tags: ['research', 'reference-report', topic.normalized_name, ...(item.tags ?? [])],
-    domain: item.domain ?? topic.name,
-    createdAt: now,
-    updatedAt: now,
-    version: 1,
-    metadata: {
-      domainData: {
-        research: {
-          researchTopicId: topic.id,
-          researchReportId: report.id,
-          researchBatchId: batchId,
-          sourceReportUri: report.report_uri,
-          confirmedBy,
-        },
-      },
-    },
-  };
-}
-
-function failReferenceBatch(reportId: string, batchId: string, reason: string, contentHash?: string, sourceType?: string): ConfirmResearchReportResult {
-  const now = Date.now();
-  const db = openWebDb(false);
-  try {
-    const report = db.prepare('SELECT * FROM research_reports WHERE id = ?').get(reportId) as ResearchReportRow;
-    db.prepare(`
-      UPDATE research_reference_batches
-      SET status = 'failed', extracted_at = ?, error_message = ?, content_hash = COALESCE(?, content_hash), source_type = COALESCE(?, source_type)
-      WHERE id = ?
-    `).run(now, reason, contentHash ?? null, sourceType ?? null, batchId);
-    db.prepare('UPDATE research_reports SET failure_reason = ?, updated_at = ? WHERE id = ?').run(reason, now, reportId);
-    return { reportId, topicId: report.topic_id, status: 'failed', sourceType: sourceType === 'lark' ? 'lark' : 'local', contentHash, batchId, insertedCount: 0, failureReason: reason };
-  } finally {
-    db.close();
-  }
-}
-function recordDuplicateReferenceBatch(
-  report: ResearchReportRow,
-  topic: ResearchTopicRow,
-  batchId: string,
-  existingBatchId: string,
-  status: 'duplicate' | 'skipped',
-  confirmedBy: string,
-  sourceType: 'local' | 'lark',
-  contentHash: string,
-): ConfirmResearchReportResult {
-  const now = Date.now();
-  const db = openWebDb(false);
-  try {
-    if (status === 'duplicate') {
-      db.prepare(`
-        UPDATE research_reports
-        SET is_reference = 1, reference_marked_at = ?, reference_marked_by = ?, content_hash = ?, failure_reason = NULL, updated_at = ?
-        WHERE id = ?
-      `).run(now, confirmedBy, contentHash, now, report.id);
-    }
-    db.prepare(`
-      UPDATE research_reference_batches
-      SET status = ?, content_hash = ?, extracted_at = ?, error_message = NULL, source_type = ?, metadata_json = ?
-      WHERE id = ?
-    `).run(status, contentHash, now, sourceType, jsonObject({ duplicateOfBatchId: existingBatchId }), batchId);
-    return { reportId: report.id, topicId: topic.id, status, sourceType, contentHash, batchId, insertedCount: 0 };
-  } finally {
-    db.close();
-  }
-}
-
-function claimReferenceBatch(
-  report: ResearchReportRow,
-  topic: ResearchTopicRow,
-  batchId: string,
-  confirmedBy: string,
-  sourceType: 'local' | 'lark',
-  contentHash: string,
-): ConfirmResearchReportResult | null {
-  const db = openWebDb(false);
-  try {
-    try {
-      db.prepare('UPDATE research_reference_batches SET content_hash = ?, source_type = ? WHERE id = ?').run(contentHash, sourceType, batchId);
-      return null;
-    } catch (err) {
-      const existing = db.prepare(`
-        SELECT id, status FROM research_reference_batches
-        WHERE report_id = ? AND content_hash = ? AND status IN ('extracting', 'completed') AND id != ?
-        ORDER BY CASE status WHEN 'completed' THEN 0 ELSE 1 END, confirmed_at ASC
-        LIMIT 1
-      `).get(report.id, contentHash, batchId) as { id: string; status: string } | undefined;
-      if (!existing) throw err;
-      return recordDuplicateReferenceBatch(
-        report,
-        topic,
-        batchId,
-        existing.id,
-        existing.status === 'completed' ? 'duplicate' : 'skipped',
-        confirmedBy,
-        sourceType,
-        contentHash,
-      );
-    }
-  } finally {
-    db.close();
-  }
-}
-
-export async function confirmResearchReportReference(input: ConfirmResearchReportInput): Promise<ConfirmResearchReportResult | null> {
-  ensureResearchTables();
-  const confirmedBy = input.confirmedBy.trim() || 'unknown';
-  const db = openWebDb(false);
-  let report: ResearchReportRow | undefined;
-  let topic: ResearchTopicRow | undefined;
-  let batchId = `batch_${randomUUID()}`;
-  try {
-    report = db.prepare('SELECT * FROM research_reports WHERE id = ?').get(input.reportId) as ResearchReportRow | undefined;
-    if (!report) return null;
-    topic = db.prepare('SELECT * FROM research_topics WHERE id = ?').get(report.topic_id) as ResearchTopicRow | undefined;
-    if (!topic) throw new Error(`Research topic not found: ${report.topic_id}`);
-    db.prepare(`
-      INSERT INTO research_reference_batches (
-        id, report_id, topic_id, status, confirmed_by, confirmed_at, extraction_prompt_version, metadata_json
-      ) VALUES (?, ?, ?, 'extracting', ?, ?, ?, '{}')
-    `).run(batchId, report.id, topic.id, confirmedBy, Date.now(), EXTRACTION_PROMPT_VERSION);
-  } finally {
-    db.close();
-  }
-
-  if (!report || !topic) return null;
-
-  let fullReport: { content: string; sourceType: 'local' | 'lark' };
-  let contentHash: string;
-  try {
-    fullReport = await readFullReport(report.report_uri);
-    contentHash = calculateContentHash(fullReport.content);
-  } catch (err) {
-    return failReferenceBatch(report.id, batchId, err instanceof Error ? err.message : String(err));
-  }
-
-  const duplicateClaim = claimReferenceBatch(report, topic, batchId, confirmedBy, fullReport.sourceType, contentHash);
-  if (duplicateClaim) return duplicateClaim;
-
-  let extracted: { entries: ExtractedResearchEntry[]; model?: string };
-  try {
-    extracted = await extractEntriesWithLlm(report, topic, fullReport.content);
-    if (extracted.entries.length === 0) throw new Error('LLM extraction returned no entries');
-  } catch (err) {
-    return failReferenceBatch(report.id, batchId, err instanceof Error ? err.message : String(err), contentHash, fullReport.sourceType);
-  }
-
-  const entryIds: string[] = [];
-  for (const item of extracted.entries) {
-    const entry = buildEntryFromExtraction(item, report, topic, batchId, confirmedBy);
-    const saved = await persistEntry(entry);
-    if (saved) entryIds.push(entry.id);
-  }
-  if (entryIds.length === 0) {
-    return failReferenceBatch(report.id, batchId, 'No extracted entries passed persistence', contentHash, fullReport.sourceType);
-  }
-
-  const successDb = openWebDb(false);
-  try {
-    const now = Date.now();
-    successDb.prepare(`
-      UPDATE research_reports
-      SET is_reference = 1, reference_marked_at = ?, reference_marked_by = ?, content_hash = ?, failure_reason = NULL, updated_at = ?
-      WHERE id = ?
-    `).run(now, confirmedBy, contentHash, now, report.id);
-    successDb.prepare(`
-      UPDATE research_reference_batches
-      SET status = 'completed', content_hash = ?, extracted_at = ?, llm_provider_id = ?, llm_model = ?, extracted_summary = ?, inserted_count = ?, source_type = ?
-      WHERE id = ?
-    `).run(contentHash, now, 'penguin-kivo', extracted.model ?? null, `${entryIds.length} entries inserted`, entryIds.length, fullReport.sourceType, batchId);
-    for (const entryId of entryIds) {
-      successDb.prepare(`
-        INSERT OR IGNORE INTO research_report_entries (id, batch_id, report_id, topic_id, entry_id, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(`rre_${randomUUID()}`, batchId, report.id, topic.id, entryId, now);
-    }
-    refreshResearchTopicCounters(successDb, topic.id);
-  } finally {
-    successDb.close();
-  }
-
-  appendActivityEvent({ type: 'research_adopted', label: '调研报告可参考', summary: `调研报告「${report.title}」已确认可参考并入库 ${entryIds.length} 条。`, href: '/research', tags: ['research', 'reference'] });
-  return { reportId: report.id, topicId: topic.id, status: 'completed', sourceType: fullReport.sourceType, contentHash, batchId, insertedCount: entryIds.length };
 }
 
 function buildEntriesFromReport(task: ResearchTaskDetailData, reportContent: string): KnowledgeEntry[] {

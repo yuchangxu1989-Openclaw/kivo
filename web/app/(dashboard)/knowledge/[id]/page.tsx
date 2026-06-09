@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { Check, CheckCircle2, Clock3, FileText, GitCompareArrows, Loader2, PencilLine, X } from 'lucide-react';
+import { Check, CheckCircle2, Clock3, FileText, GitCompareArrows, Loader2, MessageSquare, PencilLine, Tag, X } from 'lucide-react';
 
 const MDEditor = dynamic(() => import('@uiw/react-md-editor'), { ssr: false });
 const MarkdownPreview = dynamic(() => import('@uiw/react-md-editor').then(mod => mod.default.Markdown), { ssr: false });
@@ -33,6 +33,8 @@ import { useCognitiveMode } from '@/contexts/cognitive-mode-context';
 import { CognitivePanel } from '@/components/cognitive-panel';
 import { cn } from '@/components/ui/utils';
 import { TYPE_LABELS, typeLabel } from '@/lib/i18n-labels';
+import { Textarea } from '@/components/ui/textarea';
+import { parseSimilarSentences } from '@/lib/parse-similar-sentences';
 
 interface KnowledgeDetail {
   id: string;
@@ -52,8 +54,8 @@ interface KnowledgeDetail {
   updatedAt: string;
   version: number;
   similarSentences?: string[] | string | null;
+  why?: string;
 }
-
 const STATUS_LABELS: Record<string, string> = {
   active: '活跃',
 };
@@ -250,6 +252,8 @@ export default function KnowledgeDetailPage() {
   const titleInputRef = useRef<HTMLInputElement>(null);
   const [editingTags, setEditingTags] = useState(false);
   const [editTags, setEditTags] = useState<string[]>([]);
+  const [editingSimilar, setEditingSimilar] = useState(false);
+  const [similarDraft, setSimilarDraft] = useState('');
   const [actionError, setActionError] = useState('');
 
   const interventionActions = useMemo(() => {
@@ -276,6 +280,7 @@ export default function KnowledgeDetailPage() {
   const rawTitle = getRawTitle(entry.content, entry.title);
   const title = extractTitle(entry.content, entry.title);
   const fullDescription = entry.content.trim() || buildSummary(entry.content);
+  const similarSentences = parseSimilarSentences(entry.similarSentences);
 
   async function handleDelete() {
     if (!entry) return;
@@ -364,6 +369,26 @@ export default function KnowledgeDetailPage() {
       setSaving(false);
     }
   }
+
+  async function handleSaveSimilarSentences() {
+    if (!entry) return;
+    setSaving(true);
+    setActionError('');
+    try {
+      await apiFetch(`/api/v1/knowledge/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ similarSentences: similarDraft.split('\n').map((line) => line.trim()).filter(Boolean) }),
+      });
+      setEditingSimilar(false);
+      setActionMessage('相似句已更新。');
+      await mutate();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '相似句保存失败，请稍后重试。');
+    } finally {
+      setSaving(false);
+    }
+  }
+
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -461,6 +486,16 @@ export default function KnowledgeDetailPage() {
                   </div>
                 </div>
               )}
+              <div className="rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2">
+                <div className="flex items-center gap-2 text-sm font-medium text-amber-800">
+                  <MessageSquare className="h-4 w-4" />why
+                </div>
+                {entry.why?.trim() ? (
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">{entry.why}</p>
+                ) : (
+                  <p className="mt-1 text-sm text-slate-500">暂无 why</p>
+                )}
+              </div>
             </div>
           </div>
 
@@ -532,8 +567,43 @@ export default function KnowledgeDetailPage() {
           </CardContent>
         </Card>
 
-        <CognitivePanel visible={!isFocus}>
         <div className="space-y-6">
+          <Card className="border-slate-200/80 bg-white/95 shadow-sm">
+            <CardHeader className="pb-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-xl">
+                    <Tag className="h-5 w-5 text-indigo-500" />相似句
+                  </CardTitle>
+                  <p className="mt-1 text-sm text-slate-500">可用于匹配同一知识点的不同说法</p>
+                </div>
+                {!editingSimilar && (
+                  <Button variant="outline" size="sm" onClick={() => { setSimilarDraft(similarSentences.join('\n')); setEditingSimilar(true); }}>编辑</Button>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {editingSimilar ? (
+                <div className="space-y-3">
+                  <Textarea value={similarDraft} onChange={(event) => setSimilarDraft(event.target.value)} className="min-h-36" placeholder="相似句，每行一条" />
+                  <div className="flex gap-2">
+                    <Button size="sm" disabled={saving} onClick={() => void handleSaveSimilarSentences()}>{saving ? '保存中…' : '保存'}</Button>
+                    <Button variant="outline" size="sm" disabled={saving} onClick={() => setEditingSimilar(false)}>取消</Button>
+                  </div>
+                </div>
+              ) : similarSentences.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {similarSentences.map((sentence, i) => (
+                    <span key={i} className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-sm text-indigo-700">{sentence}</span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500">暂无相似句</p>
+              )}
+            </CardContent>
+          </Card>
+
+        <CognitivePanel visible={!isFocus}>
           <Card className="border-slate-200/80 bg-white/95 shadow-sm">
             <CardHeader className="pb-4">
               <CardTitle className="text-xl">知识标记与干预</CardTitle>
@@ -570,8 +640,8 @@ export default function KnowledgeDetailPage() {
           <BacklinksPanel entryId={id} />
 
           <UnlinkedMentions entryId={id} entryTitle={title} onLinked={() => void mutate()} />
-        </div>
         </CognitivePanel>
+        </div>
       </div>
 
       {entry.versions && entry.versions.length > 0 && (

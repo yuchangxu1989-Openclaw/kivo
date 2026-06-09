@@ -194,38 +194,34 @@ describe('FR-W10: Intent Management', () => {
     SYNC_POST = syncMod.POST;
   });
 
-  // AC1: List shows name, description, positives count, negatives count, relatedEntryCount
+  // AC1: List shows name, description, relatedEntryCount, and activity fields.
   it('AC1: intent list items contain all required fields', async () => {
     const res = await GET(makeGet('/api/v1/intents'));
     expect(res.status).toBe(200);
-    const body = await json<{ data: { items: Array<{ id: string; name: string; description: string; positives: string[]; negatives: string[]; relatedEntryCount: number }> } }>(res);
+    const body = await json<{ data: { items: Array<{ id: string; name: string; description: string; relatedEntryCount: number }> } }>(res);
     expect(body.data.items).toBeInstanceOf(Array);
     for (const item of body.data.items) {
       expect(item.name).toBeTruthy();
       expect(typeof item.description).toBe('string');
-      expect(Array.isArray(item.positives)).toBe(true);
-      expect(Array.isArray(item.negatives)).toBe(true);
       expect(typeof item.relatedEntryCount).toBe('number');
     }
   });
 
-  // AC2: Batch paste — positives/negatives accept arrays
-  it('AC2: create intent with batch positives and negatives', async () => {
+  // AC2: Batch paste — similar sentence lines accept arrays.
+  it('AC2: create intent with batch similar sentences', async () => {
     const res = await POST(
       makePost('/api/v1/intents', {
         name: 'w10-batch-test',
         description: 'Test batch paste',
-        positives: ['正例一', '正例二', '正例三'],
-        negatives: ['负例一', '负例二'],
+        similarSentences: ['variant one', 'variant two', 'variant three'],
         relatedEntryCount: 0,
       }),
     );
     expect(res.status).toBe(201);
-    const body = await json<{ data: { items: Array<{ name: string; positives: string[]; negatives: string[] }> } }>(res);
+    const body = await json<{ data: { items: Array<{ name: string; similarSentences: string[] }> } }>(res);
     const item = body.data.items.find((i) => i.name === 'w10-batch-test');
     expect(item).toBeDefined();
-    expect(item!.positives).toHaveLength(3);
-    expect(item!.negatives).toHaveLength(2);
+    expect(item!.similarSentences).toHaveLength(3);
   });
 
   // AC3: Delete intent
@@ -235,8 +231,6 @@ describe('FR-W10: Intent Management', () => {
       makePost('/api/v1/intents', {
         name: 'w10-delete-target',
         description: 'Will be deleted',
-        positives: [],
-        negatives: [],
       }),
     );
     expect(createRes.status).toBe(201);
@@ -275,8 +269,7 @@ describe('FR-W10: Intent Management', () => {
       makePost('/api/v1/intents', {
         name: 'w10-update-target',
         description: 'Original description',
-        positives: ['原始正例'],
-        negatives: [],
+        similarSentences: ['original variant'],
       }),
     );
     const created = await json<{ data: { items: Array<{ id: string; name: string }> } }>(createRes);
@@ -288,17 +281,15 @@ describe('FR-W10: Intent Management', () => {
         id: target!.id,
         name: 'w10-update-target-renamed',
         description: 'Updated description',
-        positives: ['新正例一', '新正例二'],
-        negatives: ['新负例'],
+        similarSentences: ['new variant one', 'new variant two'],
       }),
     );
     expect(updateRes.status).toBe(200);
-    const updated = await json<{ data: { items: Array<{ id: string; name: string; description: string; positives: string[]; negatives: string[] }> } }>(updateRes);
+    const updated = await json<{ data: { items: Array<{ id: string; name: string; description: string; similarSentences: string[] }> } }>(updateRes);
     const updatedItem = updated.data.items.find((i) => i.id === target!.id);
     expect(updatedItem?.name).toBe('w10-update-target-renamed');
     expect(updatedItem?.description).toBe('Updated description');
-    expect(updatedItem?.positives).toHaveLength(2);
-    expect(updatedItem?.negatives).toHaveLength(1);
+    expect(updatedItem?.similarSentences).toHaveLength(2);
   });
 
   it('PUT rejects missing id', async () => {
@@ -322,8 +313,7 @@ describe('FR-W10: Intent Management', () => {
       makePost('/api/v1/intents', {
         name: 'w10-detail-test',
         description: 'For detail query',
-        positives: ['测试正例'],
-        negatives: [],
+        similarSentences: ['detail variant'],
       }),
     );
     const created = await json<{ data: { items: Array<{ id: string; name: string }> } }>(createRes);

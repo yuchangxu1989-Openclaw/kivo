@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { notFound, serverError } from '@/lib/errors';
-import { adoptResearchTask } from '@/lib/research-db';
-import type { ResearchDashboardData } from '@/lib/research-db';
+import { adoptResearchTask } from '@/lib/domain-stores';
+import type { ResearchDashboardData } from '@/lib/domain-stores';
 import type { ApiResponse } from '@/types';
 
 export async function POST(
@@ -10,7 +10,7 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const result = await adoptResearchTask(id);
+    const result = adoptResearchTask(id);
     if (!result) return notFound(`Research task not found or not completed: ${id}`);
 
     const response: ApiResponse<ResearchDashboardData> = { data: result };

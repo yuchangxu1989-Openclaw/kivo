@@ -121,7 +121,7 @@ async function seedDemoData(): Promise<void> {
     {
       id: 'ke-005', type: 'decision',
       title: '知识类型采用六分类体系',
-      content: '知识条目分为 fact、methodology、decision、experience、intent、meta 六种类型。最初考虑过三分类（事实/决策/经验）和八分类方案，最终选择六分类：覆盖面足够广，又不至于分类困难。intent 类型用于捕获用户意图的正例和负例，meta 用于元认知层面的知识。',
+      content: '知识条目分为 fact、methodology、decision、experience、intent、meta 六种类型。最初考虑过三分类（事实/决策/经验）和八分类方案，最终选择六分类：覆盖面足够广，又不至于分类困难。intent 类型用于捕获用户表达习惯和边界信号，meta 用于元认知层面的知识。',
       summary: '知识六分类：fact/methodology/decision/experience/intent/meta',
       source: { type: 'document', reference: 'docs/architecture/decisions/ADR-006.md', timestamp: d(12), agent: 'sa-01' },
       confidence: 0.95, status: 'active',

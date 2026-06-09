@@ -5,7 +5,7 @@
  * Uses apiFetch from client-api.ts under the hood.
  */
 
-import { apiFetch } from './client-api';
+import { apiFetch, withBasePath } from './client-api';
 import type {
   ApiResponse,
   DashboardSummary,
@@ -248,7 +248,7 @@ export async function fetchWikiMaterials(): Promise<ApiResponse<unknown[]>> {
 
 /** Wiki Materials — Upload */
 export async function uploadWikiMaterial(formData: FormData): Promise<ApiResponse<unknown>> {
-  const response = await fetch('/api/v1/wiki/upload', {
+  const response = await fetch(withBasePath('/api/v1/wiki/upload'), {
     method: 'POST',
     body: formData,
   });

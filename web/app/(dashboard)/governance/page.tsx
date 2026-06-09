@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { useApi } from '@/hooks/use-api';
+import { withBasePath } from '@/lib/client-api';
 import {
   BookOpen,
   Calendar,
@@ -184,7 +185,7 @@ export default function GovernancePage() {
   const { data, isLoading, error, mutate } = useApi<ApiResponse<GovernanceData>>('/api/v1/governance');
 
   async function rollbackGovernance(id: string) {
-    const response = await fetch(`/api/v1/governance/${encodeURIComponent(id)}/rollback`, {
+    const response = await fetch(withBasePath(`/api/v1/governance/${encodeURIComponent(id)}/rollback`), {
       method: 'POST',
     });
     if (!response.ok) {

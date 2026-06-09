@@ -18,8 +18,7 @@ interface IntentItem {
   id: string;
   name: string;
   description: string;
-  positives: string[];
-  negatives: string[];
+  why?: string;
   similarSentences: string[];
   relatedEntryCount: number;
   recentHitCount: number;
@@ -30,10 +29,6 @@ interface IntentItem {
 
 interface IntentData {
   items: IntentItem[];
-}
-
-function splitLines(value: string) {
-  return value.split('\n').map((line) => line.trim()).filter(Boolean);
 }
 
 function IntentRow({ item, onNavigate, onDelete }: { item: IntentItem; onNavigate: (id: string) => void; onDelete: (item: IntentItem) => void }) {
@@ -56,10 +51,9 @@ function IntentRow({ item, onNavigate, onDelete }: { item: IntentItem; onNavigat
       <td className="max-w-[320px] px-4 py-3">
         <span className="block truncate text-sm text-slate-600" title={item.description}>{item.description}</span>
       </td>
-      <td className="px-4 py-3 text-center text-sm text-emerald-700">{item.positives.length}</td>
-      <td className="px-4 py-3 text-center text-sm text-rose-700">{item.negatives.length}</td>
-      <td className="hidden px-4 py-3 text-center text-sm text-indigo-700 md:table-cell">{item.similarSentences.length}</td>
-      <td className="hidden px-4 py-3 text-center text-sm text-slate-600 sm:table-cell">{item.recentHitCount}</td>
+      <td className="max-w-[320px] px-4 py-3">
+        <span className="block truncate text-sm text-slate-600" title={item.why?.trim() || ''}>{item.why?.trim() || '—'}</span>
+      </td>
       <td className="hidden whitespace-nowrap px-4 py-3 text-sm text-slate-500 lg:table-cell">{item.updatedAt}</td>
       <td className="w-12 px-4 py-3 text-right">
         <button
@@ -86,10 +80,7 @@ function IntentTable({ items, onNavigate, onDelete }: { items: IntentItem[]; onN
           <tr className="border-b border-slate-100 bg-slate-50/80 text-left text-xs font-medium text-slate-600">
             <th className="px-4 py-3">名称</th>
             <th className="px-4 py-3">描述</th>
-            <th className="px-4 py-3 text-center">正例</th>
-            <th className="px-4 py-3 text-center">负例</th>
-            <th className="hidden px-4 py-3 text-center md:table-cell">相似句</th>
-            <th className="hidden px-4 py-3 text-center sm:table-cell">命中</th>
+            <th className="px-4 py-3">why</th>
             <th className="hidden px-4 py-3 lg:table-cell">更新时间</th>
             <th className="w-12 px-4 py-3" />
           </tr>
@@ -110,8 +101,7 @@ export default function IntentPage() {
   const [query, setQuery] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [positives, setPositives] = useState('');
-  const [negatives, setNegatives] = useState('');
+  const [why, setWhy] = useState('');
   const [saving, setSaving] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<IntentItem | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -120,7 +110,7 @@ export default function IntentPage() {
   const filtered = useMemo(() => {
     const kw = query.trim().toLowerCase();
     if (!kw) return items;
-    return items.filter((item) => [item.name, item.description, ...item.positives, ...item.negatives].join(' ').toLowerCase().includes(kw));
+    return items.filter((item) => [item.name, item.description, item.why ?? ''].join(' ').toLowerCase().includes(kw));
   }, [items, query]);
 
   async function handleCreate() {
@@ -129,12 +119,11 @@ export default function IntentPage() {
     try {
       await apiFetch('/api/v1/intent/create', {
         method: 'POST',
-        body: JSON.stringify({ name, description, positives: splitLines(positives), negatives: splitLines(negatives) }),
+        body: JSON.stringify({ name, description, why: why.trim() }),
       });
       setName('');
       setDescription('');
-      setPositives('');
-      setNegatives('');
+      setWhy('');
       await mutate();
       toast.success('意图已保存');
     } catch (err) {
@@ -180,8 +169,7 @@ export default function IntentPage() {
         <CardContent className="grid gap-3 md:grid-cols-2">
           <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="意图名称" />
           <Input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="意图描述" />
-          <Textarea value={positives} onChange={(event) => setPositives(event.target.value)} placeholder="正例，每行一条" className="min-h-28" />
-          <Textarea value={negatives} onChange={(event) => setNegatives(event.target.value)} placeholder="负例，每行一条" className="min-h-28" />
+          <Textarea value={why} onChange={(event) => setWhy(event.target.value)} placeholder="说明为什么需要记录这个意图" className="min-h-28 md:col-span-2" />
           <div className="md:col-span-2 flex justify-end">
             <Button onClick={handleCreate} disabled={saving || !name.trim() || !description.trim()}>{saving ? '保存中' : '保存意图'}</Button>
           </div>
@@ -190,7 +178,7 @@ export default function IntentPage() {
 
       <div className="relative max-w-xl">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-        <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="筛选意图名称、描述、正负例" className="pl-9" />
+        <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="筛选意图名称、描述、why" className="pl-9" />
       </div>
 
       {filtered.length === 0 ? (

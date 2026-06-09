@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { badRequest, notFound, serverError } from '@/lib/errors';
-import { updateResearchHighlight } from '@/lib/research-db';
+import { getResearchTaskDetail, updateResearchHighlight } from '@/lib/research-db';
 import type { ResearchDashboardData } from '@/lib/research-db';
-import { getResearchTaskDetail } from '@/lib/research-db';
 import type { ApiResponse } from '@/types';
 
 export async function GET(

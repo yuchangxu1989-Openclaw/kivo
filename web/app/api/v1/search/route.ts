@@ -43,8 +43,6 @@ interface IntentSearchRow {
   id: string;
   name: string;
   description: string;
-  positives_json: string | null;
-  negatives_json: string | null;
   similar_sentences_json: string | null;
   status: string;
   confidence: number | null;
@@ -287,24 +285,20 @@ function findIntentResults(query: string): SearchResultItem[] {
   try {
     ensureIntentTables(db);
     const rows = db.prepare(`
-      SELECT id, name, description, positives_json, negatives_json,
-             similar_sentences_json, status, confidence, created_at
+      SELECT id, name, description, similar_sentences_json, status, confidence, created_at
       FROM intents
       WHERE status = 'active'
         AND (
           LOWER(name) LIKE ? OR LOWER(description) LIKE ?
-          OR LOWER(positives_json) LIKE ? OR LOWER(negatives_json) LIKE ?
           OR LOWER(similar_sentences_json) LIKE ?
         )
       ORDER BY datetime(updated_at) DESC
       LIMIT 50
-    `).all(likeQuery(query), likeQuery(query), likeQuery(query), likeQuery(query), likeQuery(query)) as IntentSearchRow[];
+    `).all(likeQuery(query), likeQuery(query), likeQuery(query)) as IntentSearchRow[];
 
     return rows.map((row) => {
-      const positives = safeParseStringArray(row.positives_json);
-      const negatives = safeParseStringArray(row.negatives_json);
       const similar = safeParseStringArray(row.similar_sentences_json);
-      const content = [row.description, ...positives, ...negatives, ...similar].filter(Boolean).join('\n');
+      const content = [row.description, ...similar].filter(Boolean).join('\n');
       return {
         id: row.id,
         type: 'intent',

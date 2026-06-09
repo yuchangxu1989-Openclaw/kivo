@@ -299,8 +299,7 @@ describe('POST /api/v1/intents', () => {
       makePost('/api/v1/intents', {
         name: 'test-intent',
         description: 'A test intent for integration testing',
-        positives: ['positive example 1'],
-        negatives: ['negative example 1'],
+        similarSentences: ['alternate wording 1'],
         relatedEntryCount: 3,
       }),
     );

@@ -15,8 +15,6 @@ interface IntentRow {
   id: string;
   name: string;
   description: string;
-  positives_json: string | null;
-  negatives_json: string | null;
   embedding: Buffer | string | null;
   status: string | null;
   hit_count: number | null;
@@ -34,8 +32,6 @@ export function ensureIntentSchema(db: DatabaseLike): void {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       description TEXT NOT NULL,
-      positives_json TEXT NOT NULL DEFAULT '[]',
-      negatives_json TEXT NOT NULL DEFAULT '[]',
       embedding BLOB,
       status TEXT NOT NULL DEFAULT 'active',
       hit_count INTEGER NOT NULL DEFAULT 0,
@@ -52,8 +48,6 @@ export function ensureIntentSchema(db: DatabaseLike): void {
   const colNames = new Set(columns.map(c => c.name));
   if (!colNames.has('name')) db.exec(`ALTER TABLE intents ADD COLUMN name TEXT NOT NULL DEFAULT ''`);
   if (!colNames.has('description')) db.exec(`ALTER TABLE intents ADD COLUMN description TEXT NOT NULL DEFAULT ''`);
-  if (!colNames.has('positives_json')) db.exec(`ALTER TABLE intents ADD COLUMN positives_json TEXT NOT NULL DEFAULT '[]'`);
-  if (!colNames.has('negatives_json')) db.exec(`ALTER TABLE intents ADD COLUMN negatives_json TEXT NOT NULL DEFAULT '[]'`);
   if (!colNames.has('embedding')) db.exec(`ALTER TABLE intents ADD COLUMN embedding BLOB`);
   if (!colNames.has('status')) db.exec(`ALTER TABLE intents ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`);
   if (!colNames.has('hit_count')) db.exec(`ALTER TABLE intents ADD COLUMN hit_count INTEGER NOT NULL DEFAULT 0`);
@@ -79,7 +73,7 @@ export function ensureIntentSchema(db: DatabaseLike): void {
 function migrateIntentEntries(db: DatabaseLike): void {
   db.exec(`
     INSERT INTO intents (
-      id, name, description, positives_json, negatives_json, embedding,
+      id, name, description, embedding,
       status, hit_count, last_hit_at, confidence, source_session_id, source_message_id,
       created_at, updated_at
     )
@@ -87,8 +81,6 @@ function migrateIntentEntries(db: DatabaseLike): void {
       e.id,
       COALESCE(NULLIF(e.title, ''), substr(e.content, 1, 60)),
       COALESCE(NULLIF(e.summary, ''), e.content),
-      COALESCE(e.similar_sentences, '[]'),
-      '[]',
       e.embedding,
       CASE WHEN e.status = 'active' THEN 'active' ELSE 'archived' END,
       0,
@@ -106,18 +98,6 @@ function migrateIntentEntries(db: DatabaseLike): void {
     SET status = 'migrated_to_intents', updated_at = datetime('now')
     WHERE type = 'intent' AND status != 'migrated_to_intents';
   `);
-}
-
-function safeJsonArray(raw: string | null | undefined): string[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-      : [];
-  } catch {
-    return [];
-  }
 }
 
 export function encodeEmbedding(value: IntentInput['embedding']): Buffer | string | null {
@@ -163,8 +143,8 @@ function rowToIntent(row: IntentRow): IntentRecord {
     id: row.id,
     name: row.name,
     description: row.description,
-    positives: safeJsonArray(row.positives_json),
-    negatives: safeJsonArray(row.negatives_json),
+    positives: [],
+    negatives: [],
     status: row.status === 'archived' ? 'archived' : 'active',
     hitCount: row.hit_count ?? 0,
     lastHitAt: row.last_hit_at ? new Date(row.last_hit_at) : undefined,
@@ -215,14 +195,12 @@ export class IntentRepository {
     if (existing) {
       this.db.prepare(`
         UPDATE intents
-        SET name = ?, description = ?, positives_json = ?, negatives_json = ?, status = ?, confidence = ?,
+        SET name = ?, description = ?, status = ?, confidence = ?,
             source_session_id = ?, source_message_id = ?, embedding = COALESCE(?, embedding), updated_at = ?
         WHERE id = ?
       `).run(
         input.name,
         input.description,
-        JSON.stringify(input.positives ?? []),
-        JSON.stringify(input.negatives ?? []),
         input.status ?? existing.status,
         input.confidence ?? existing.confidence,
         input.sourceSessionId ?? existing.sourceSessionId ?? null,
@@ -235,14 +213,12 @@ export class IntentRepository {
     }
 
     this.db.prepare(`
-      INSERT INTO intents (id, name, description, positives_json, negatives_json, embedding, status, confidence, source_session_id, source_message_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO intents (id, name, description, embedding, status, confidence, source_session_id, source_message_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.name,
       input.description,
-      JSON.stringify(input.positives ?? []),
-      JSON.stringify(input.negatives ?? []),
       embedding,
       input.status ?? 'active',
       input.confidence ?? 1,

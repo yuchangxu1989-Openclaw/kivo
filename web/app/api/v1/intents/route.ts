@@ -41,14 +41,14 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const name = typeof body?.name === 'string' ? body.name.trim() : '';
     const description = typeof body?.description === 'string' ? body.description.trim() : '';
-    const positives = normalizeLines(body?.positives);
-    const negatives = normalizeLines(body?.negatives);
+    const why = typeof body?.why === 'string' ? body.why.trim() : undefined;
+    const similarSentences = normalizeLines(body?.similarSentences);
 
     if (!name || !description) {
       return badRequest('name and description are required');
     }
 
-    const data = await upsertIntent({ name, description, positives, negatives });
+    const data = await upsertIntent({ name, description, why, similarSentences });
     if (!data) {
       return serverError('Failed to create intent');
     }
@@ -64,14 +64,17 @@ export async function PUT(request: NextRequest) {
     const id = typeof body?.id === 'string' ? body.id.trim() : '';
     const name = typeof body?.name === 'string' ? body.name.trim() : '';
     const description = typeof body?.description === 'string' ? body.description.trim() : '';
-    const positives = normalizeLines(body?.positives);
-    const negatives = normalizeLines(body?.negatives);
+    const why = typeof body?.why === 'string' ? body.why.trim() : undefined;
+    const similarSentences = normalizeLines(body?.similarSentences);
 
     if (!id || !name || !description) {
       return badRequest('id, name and description are required');
     }
+    if (!getIntentApiById(id)) {
+      return notFound(`Intent not found: ${id}`);
+    }
 
-    const data = await upsertIntent({ id, name, description, positives, negatives });
+    const data = await upsertIntent({ id, name, description, why, similarSentences });
     if (!data) {
       return notFound(`Intent not found: ${id}`);
     }

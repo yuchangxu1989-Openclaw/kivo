@@ -202,8 +202,6 @@ CREATE TABLE intents (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   description TEXT NOT NULL,
-  positives_json TEXT NOT NULL DEFAULT '[]',
-  negatives_json TEXT NOT NULL DEFAULT '[]',
   embedding BLOB,
   status TEXT NOT NULL DEFAULT 'active',
   hit_count INTEGER NOT NULL DEFAULT 0,
@@ -233,11 +231,8 @@ CREATE INDEX idx_intents_name ON intents(name);
 ### 数据迁移
 
 ```sql
-INSERT INTO intents (id, name, description, positives_json, negatives_json, embedding, status, created_at, updated_at)
-SELECT id, title, content,
-  COALESCE(json_extract(metadata_json, '$.positives'), '[]'),
-  COALESCE(json_extract(metadata_json, '$.negatives'), '[]'),
-  embedding, status, created_at, updated_at
+INSERT INTO intents (id, name, description, embedding, status, created_at, updated_at)
+SELECT id, title, content, embedding, status, created_at, updated_at
 FROM entries WHERE type = 'intent';
 
 UPDATE entries SET status = 'migrated_to_intents' WHERE type = 'intent';

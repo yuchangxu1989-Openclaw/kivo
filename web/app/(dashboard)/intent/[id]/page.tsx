@@ -6,13 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DetailPageSkeleton, ErrorState } from '@/components/ui/page-states';
-import { ArrowLeft, CheckCircle2, ShieldAlert, Brain, Tag, Hash, Clock, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Brain, Clock, Hash, MessageSquare, Tag } from 'lucide-react';
 import { apiFetch } from '@/lib/client-api';
 import { toast } from 'sonner';
 import { useState } from 'react';
 import type { ApiResponse } from '@/types';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-
+import { Textarea } from '@/components/ui/textarea';
 const SIGNAL_TYPE_LABELS: Record<string, { label: string; color: string }> = {
   correction: { label: '纠偏', color: 'bg-rose-100 text-rose-700' },
   emphasis: { label: '强调', color: 'bg-amber-100 text-amber-700' },
@@ -37,24 +37,26 @@ export default function IntentDetailPage() {
   const { data, isLoading, error, mutate } = useApi<ApiResponse<Record<string, unknown>>>(`/api/v1/intent/${id}`);
   const [deleting, setDeleting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [editingWhy, setEditingWhy] = useState(false);
+  const [whyDraft, setWhyDraft] = useState('');
+  const [editingSimilar, setEditingSimilar] = useState(false);
+  const [similarDraft, setSimilarDraft] = useState('');
+  const intent = data?.data as Record<string, unknown> | undefined;
+  const name = intent?.name as string || '';
+  const description = intent?.description as string || '';
+  const why = intent?.why as string | undefined || '';
+  const similarSentences = (intent?.similarSentences as string[]) || [];
+  const recentHitCount = (intent?.recentHitCount as number) || 0;
+  const updatedAt = (intent?.updatedAt as string) || '';
+  const createdAt = (intent?.createdAt as string) || '';
+  const sourceSessionId = intent?.sourceSessionId as string | undefined;
+  const confidence = (intent?.confidence as number) ?? 1;
+
+  const signalType = detectSignalType(description);
 
   if (isLoading) return <DetailPageSkeleton />;
   if (error) return <ErrorState title="意图详情加载失败" description={error.message || '暂时拿不到详情'} onRetry={() => void mutate()} />;
-  if (!data?.data) return <ErrorState title="意图不存在" description="该意图可能已被删除" />;
-
-  const intent = data.data as Record<string, unknown>;
-  const name = intent.name as string || '';
-  const description = intent.description as string || '';
-  const positives = (intent.positives as string[]) || [];
-  const negatives = (intent.negatives as string[]) || [];
-  const similarSentences = (intent.similarSentences as string[]) || [];
-  const recentHitCount = (intent.recentHitCount as number) || 0;
-  const updatedAt = (intent.updatedAt as string) || '';
-  const createdAt = (intent.createdAt as string) || '';
-  const sourceSessionId = intent.sourceSessionId as string | undefined;
-  const confidence = (intent.confidence as number) ?? 1;
-
-  const signalType = detectSignalType(description);
+  if (!intent) return <ErrorState title="意图不存在" description="该意图可能已被删除" />;
 
   async function handleDelete() {
     setDeleting(true);
@@ -66,6 +68,34 @@ export default function IntentDetailPage() {
       toast.error(err instanceof Error ? err.message : '删除失败');
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function handleSaveWhy() {
+    try {
+      await apiFetch(`/api/v1/intent/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name, description, why: whyDraft, similarSentences }),
+      });
+      setEditingWhy(false);
+      toast.success('why 已更新');
+      await mutate();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '保存失败');
+    }
+  }
+
+  async function handleSaveSimilarSentences() {
+    try {
+      await apiFetch(`/api/v1/intent/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name, description, why, similarSentences: similarDraft.split('\n').map((line) => line.trim()).filter(Boolean) }),
+      });
+      setEditingSimilar(false);
+      toast.success('相似句已更新');
+      await mutate();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '保存失败');
     }
   }
 
@@ -131,55 +161,59 @@ export default function IntentDetailPage() {
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card className="border-emerald-200/80 bg-white shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base text-emerald-700">
-              <CheckCircle2 className="h-5 w-5" />正例
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {positives.length > 0 ? (
-              <ul className="space-y-2">
-                {positives.map((item, i) => (
-                  <li key={i} className="rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-sm text-slate-700">{item}</li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-slate-500">暂无正例</p>
+      <Card className="border-slate-200/80 bg-white shadow-sm">
+        <CardHeader>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <MessageSquare className="h-5 w-5 text-amber-600" />why
+              </CardTitle>
+              <p className="mt-1 text-sm text-slate-500">为什么需要记录这个意图</p>
+            </div>
+            {!editingWhy && (
+              <Button variant="outline" size="sm" onClick={() => { setWhyDraft(why); setEditingWhy(true); }}>编辑</Button>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {editingWhy ? (
+            <div className="space-y-3">
+              <Textarea value={whyDraft} onChange={(event) => setWhyDraft(event.target.value)} className="min-h-28" placeholder="说明为什么需要记录这个意图" />
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => void handleSaveWhy()}>保存</Button>
+                <Button variant="outline" size="sm" onClick={() => setEditingWhy(false)}>取消</Button>
+              </div>
+            </div>
+          ) : why.trim() ? (
+            <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{why}</p>
+          ) : (
+            <p className="text-sm text-slate-500">暂无 why</p>
+          )}
+        </CardContent>
+      </Card>
 
-        <Card className="border-amber-200/80 bg-white shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base text-amber-700">
-              <ShieldAlert className="h-5 w-5" />负例
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {negatives.length > 0 ? (
-              <ul className="space-y-2">
-                {negatives.map((item, i) => (
-                  <li key={i} className="rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 text-sm text-slate-700">{item}</li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-slate-500">暂无负例</p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {similarSentences.length > 0 && (
-        <Card className="border-slate-200/80 bg-white shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Tag className="h-5 w-5 text-indigo-500" />相似句
-            </CardTitle>
-            <p className="text-sm text-slate-500">用户可能用来表达同一意图的不同说法</p>
-          </CardHeader>
-          <CardContent>
+      <Card className="border-slate-200/80 bg-white shadow-sm">
+        <CardHeader>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Tag className="h-5 w-5 text-indigo-500" />相似句
+              </CardTitle>
+              <p className="mt-1 text-sm text-slate-500">用户可能用来表达同一意图的不同说法</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => { setSimilarDraft(similarSentences.join('\n')); setEditingSimilar(true); }}>编辑</Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {editingSimilar ? (
+            <div className="space-y-3">
+              <Textarea value={similarDraft} onChange={(event) => setSimilarDraft(event.target.value)} className="min-h-36" placeholder="相似句，每行一条" />
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => void handleSaveSimilarSentences()}>保存</Button>
+                <Button variant="outline" size="sm" onClick={() => setEditingSimilar(false)}>取消</Button>
+              </div>
+            </div>
+          ) : similarSentences.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {similarSentences.map((sentence, i) => (
                 <span key={i} className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-sm text-indigo-700">
@@ -187,9 +221,11 @@ export default function IntentDetailPage() {
                 </span>
               ))}
             </div>
-          </CardContent>
-        </Card>
-      )}
+          ) : (
+            <p className="text-sm text-slate-500">暂无相似句</p>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="flex flex-wrap gap-4 text-xs text-slate-400">
         <span>ID: {id}</span>

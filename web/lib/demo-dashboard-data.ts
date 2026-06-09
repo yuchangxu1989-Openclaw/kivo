@@ -192,9 +192,8 @@ export interface IntentItem {
   id: string;
   name: string;
   description: string;
-  positives: string[];
-  negatives: string[];
-  similarSentences?: string[];
+  why?: string;
+  similarSentences: string[];
   relatedEntryCount: number;
   recentHitCount: number;
   recentSnippets: IntentSnippet[];

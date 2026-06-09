@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { withBasePath } from '@/lib/client-api';
 import { Network, RefreshCw, AlertTriangle } from 'lucide-react';
 
 export default function GraphError({
@@ -23,7 +24,7 @@ export default function GraphError({
     if (nextCount >= 3) {
       // Log error to backend on 3rd failure
       try {
-        await fetch('/api/v1/graph/error-log', {
+        await fetch(withBasePath('/api/v1/graph/error-log'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
