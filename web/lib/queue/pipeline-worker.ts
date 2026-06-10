@@ -1053,19 +1053,6 @@ export async function executeExtractBatchTask(
       });
 
       const repo = getWikiRepository();
-      let spaceId = material.space_id;
-      if (!spaceId || spaceId === 'default') {
-        const spaces = repo.listSpaces();
-        const seed = spaces.find((s) => s.type === 'wiki_space');
-        if (seed) spaceId = seed.id;
-      } else {
-        const node = repo.findById(spaceId);
-        if (!node || node.type !== 'wiki_space') {
-          const seed = repo.listSpaces().find((s) => s.type === 'wiki_space');
-          if (seed) spaceId = seed.id;
-        }
-      }
-
       let wikiPageIds: string[] = [];
       try {
         const tags = [
@@ -1077,7 +1064,7 @@ export async function executeExtractBatchTask(
           content: wiki.content,
           summary: wiki.summary,
           tags,
-          parentId: spaceId,
+          parentId: null,
           metadata: {
             source: {
               type: 'document',

@@ -167,6 +167,8 @@ export interface KnowledgeEntry {
   io?: KnowledgeIO;
   /** Similar sentences / paraphrases for intent-type entries (5~10 items) */
   similarSentences?: string[];
+  /** Why this knowledge matters; empty when the extractor cannot infer it independently. */
+  why?: string;
 
   // ── Multi-dimensional tags (FR-B05) ─────────────────────────────────────
 

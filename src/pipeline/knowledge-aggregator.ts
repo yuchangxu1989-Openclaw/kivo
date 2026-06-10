@@ -67,6 +67,7 @@ interface StagingMaterialRow {
   tags_json: string;
   similar_sentences_json: string;
   source_refs_json: string;
+  why: string | null;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -95,6 +96,14 @@ function parseTagsJson(raw: string | null | undefined): string[] {
   return [];
 }
 
+function normalizeWhy(raw: string | undefined, content: string): string | undefined {
+  const why = raw?.trim() ?? '';
+  if (!why || why === '待补充') return undefined;
+  const normalizedWhy = why.replace(/\s+/g, ' ');
+  const normalizedContent = content.trim().replace(/\s+/g, ' ');
+  return normalizedWhy === normalizedContent ? undefined : why;
+}
+
 function rowToMaterial(row: StagingMaterialRow): KnowledgeMaterial {
   return {
     clusterId: row.cluster_id,
@@ -108,6 +117,7 @@ function rowToMaterial(row: StagingMaterialRow): KnowledgeMaterial {
     confidence: row.confidence ?? undefined,
     tags: parseTagsJson(row.tags_json),
     similarSentences: parseJsonArray(row.similar_sentences_json).filter((v): v is string => typeof v === 'string'),
+    why: normalizeWhy(row.why ?? undefined, row.content),
     sourceRefs: parseJsonArray(row.source_refs_json).map(v => {
       const ref = v as { sessionId?: unknown; timestamp?: unknown };
       return {
@@ -194,6 +204,7 @@ export async function runKnowledgeAggregation(
         cluster_size INTEGER NOT NULL,
         title TEXT,
         content TEXT NOT NULL,
+        why TEXT,
         nature TEXT,
         function_tag TEXT,
         knowledge_domain TEXT,
@@ -216,10 +227,12 @@ export async function runKnowledgeAggregation(
     if (!stagingColNames.has('similar_sentences_json')) {
       db.exec(`ALTER TABLE staging_materials ADD COLUMN similar_sentences_json TEXT NOT NULL DEFAULT '[]'`);
     }
-
+    if (!stagingColNames.has('why')) {
+      db.exec(`ALTER TABLE staging_materials ADD COLUMN why TEXT`);
+    }
     // Read pending materials
     let query = `
-      SELECT id, cluster_id, cluster_size, title, content, nature, function_tag, knowledge_domain,
+      SELECT id, cluster_id, cluster_size, title, content, why, nature, function_tag, knowledge_domain,
              source, confidence, tags_json, COALESCE(similar_sentences_json, '[]') AS similar_sentences_json, source_refs_json
       FROM staging_materials
       WHERE status = 'pending'
@@ -287,12 +300,14 @@ export async function runKnowledgeAggregation(
         functionTag: normalized.functionTag,
         knowledgeDomain: normalized.domain,
         similarSentences: normalized.similarSentences,
+        why: normalized.why,
         createdAt: now,
         updatedAt: now,
         version: 1,
         metadata: {
           domainData: {
             contentHash,
+            ...(normalized.why ? { why: normalized.why } : {}),
             staging: normalized.provenance,
           },
         },

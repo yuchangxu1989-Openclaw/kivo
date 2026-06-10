@@ -61,6 +61,7 @@ function parseJsonFile(text: string, fileName: string): ImportCandidate[] {
       type: (typeof item.type === 'string' ? item.type : 'fact'),
       title: (typeof item.title === 'string' ? item.title : `${fileName} #${i + 1}`),
       content: (typeof item.content === 'string' ? item.content : ''),
+      why: typeof item.why === 'string' ? item.why : undefined,
       domain: typeof item.domain === 'string' ? item.domain : undefined,
       sourceAnchor: `JSON 条目 ${i + 1}`,
       sourceContext: typeof item.content === 'string' ? item.content : '',
@@ -513,6 +514,7 @@ export default function DocumentImportPage() {
           body: JSON.stringify({
             title: c.title,
             content: c.content,
+            why: c.why,
             type: c.type || 'fact',
             domain: c.domain,
             status: 'active',

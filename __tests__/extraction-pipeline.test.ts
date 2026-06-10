@@ -21,6 +21,7 @@ describe('ConversationExtractor', () => {
               type: 'decision',
               title: 'Use SQLite first',
               content: 'Wave 1 uses SQLite as the single source of truth for KIVO storage.',
+              why: 'Without this storage decision, later pipeline code may split state across incompatible backends.',
               summary: 'Wave 1 stores KIVO data in SQLite.',
               confidence: 0.91,
               tags: ['storage', 'wave-1'],
@@ -47,8 +48,10 @@ describe('ConversationExtractor', () => {
     expect(entries[0]).toMatchObject({
       type: 'decision',
       title: 'Use SQLite first',
+      why: 'Without this storage decision, later pipeline code may split state across incompatible backends.',
       status: 'active',
     });
+    expect(entries[0].metadata?.domainData?.why).toBe('Without this storage decision, later pipeline code may split state across incompatible backends.');
     expect(entries[0].source.context).toContain('user:');
     expect(entries[1].tags).toContain('pipeline');
   });
@@ -102,6 +105,7 @@ describe('DocumentExtractor semantic path', () => {
               type: 'fact',
               title: 'Retrieval target',
               content: 'Knowledge retrieval should hit relevant entries within two seconds at P95.',
+              why: 'This target matters because slow retrieval blocks timely context injection.',
               summary: 'Retrieval target is P95 within two seconds.',
               confidence: 0.88,
               tags: ['search'],
@@ -124,10 +128,44 @@ describe('DocumentExtractor semantic path', () => {
     expect(entries[0]).toMatchObject({
       type: 'fact',
       title: 'Retrieval target',
+      why: 'This target matters because slow retrieval blocks timely context injection.',
       domain: 'retrieval',
     });
+    expect(entries[0].metadata?.domainData?.why).toBe('This target matters because slow retrieval blocks timely context injection.');
     expect(entries[0].tags).toContain('search');
     expect(entries[0].source.context).toContain('docs/search-goals.md');
+  });
+
+  it('does not copy content into why when the LLM repeats the description', async () => {
+    const repeated = 'Knowledge retrieval should hit relevant entries within two seconds at P95.';
+    const extractor = new DocumentExtractor({
+      minContentLength: 10,
+      llmProvider: {
+        async complete() {
+          return JSON.stringify([
+            {
+              type: 'fact',
+              title: 'Retrieval target',
+              content: repeated,
+              why: repeated,
+              summary: 'Retrieval target is P95 within two seconds.',
+              confidence: 0.88,
+              tags: ['search'],
+            },
+          ]);
+        },
+      },
+    });
+
+    const entries = await extractor.extractFromMarkdown(
+      '# Search Goals\n\nKnowledge retrieval should hit relevant entries within two seconds at P95.',
+      { path: 'docs/search-goals.md', title: 'Search Goals' },
+      { ...source, type: 'document', reference: 'test://document' },
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].why).toBeUndefined();
+    expect(entries[0].metadata?.domainData?.why).toBeUndefined();
   });
 });
 

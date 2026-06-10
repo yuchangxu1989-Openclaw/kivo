@@ -9,6 +9,7 @@ export interface ExtractedKnowledgeCandidate {
   tags?: string[];
   similar_sentences?: string[];
   similarSentences?: string[];
+  why?: string;
 }
 
 const KNOWLEDGE_TYPES: KnowledgeType[] = [

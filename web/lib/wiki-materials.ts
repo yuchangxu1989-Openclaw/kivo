@@ -167,19 +167,8 @@ async function buildCollectorContext(fileName: string): Promise<CollectorContext
 }
 
 function resolveSpaceId(rawSpaceId: string) {
-  const repo = getWikiRepository();
-  if (!rawSpaceId || rawSpaceId === 'default') {
-    const pipeline = new WikiCollectionPipeline(repo, {
-      model: 'default',
-      llm: { complete: async () => '{}' },
-    });
-    return pipeline.ensureDefaultSpace().id;
-  }
-  const existing = repo.findById(rawSpaceId);
-  if (!existing || existing.type !== 'wiki_space') {
-    throw new Error('目标空间不存在');
-  }
-  return rawSpaceId;
+  void rawSpaceId;
+  return 'default';
 }
 
 export function ensureMaterialSpaceExists(rawSpaceId: string) {
@@ -266,7 +255,7 @@ export async function processMaterial(materialId: string, retryChannel?: VideoCh
     const existing = repo.findPageBySourceUri(`upload://material/${material.id}`, targetSpaceId);
     const page = await pipeline.confirmDraft({
       draft,
-      parentId: targetSpaceId,
+      parentId: null,
       replacePageId: existing?.id,
     });
 

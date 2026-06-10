@@ -1,5 +1,5 @@
 /**
- * GET /api/wiki/search?q=xxx&spaceId=xxx&page=1&pageSize=20
+ * GET /api/wiki/search?q=xxx&page=1&pageSize=20
  * Uses hybrid search (FTS + vector) through the wiki SearchApi.
  */
 
@@ -25,7 +25,6 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const q = searchParams.get('q')?.trim();
-    const spaceId = searchParams.get('spaceId') || undefined;
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
     const pageSize = Math.min(50, Math.max(1, parseInt(searchParams.get('pageSize') || '20', 10)));
 
@@ -33,7 +32,7 @@ export async function GET(request: NextRequest) {
 
     const repo = getWikiRepository();
     const api = new SearchApi(repo, createEmbeddingProvider());
-    const result = await api.search({ query: q, scope: spaceId ? { spaceId } : undefined, limit: page * pageSize * 3 });
+    const result = await api.search({ query: q, limit: page * pageSize * 3 });
     const wikiPages = result.items.filter((item) => item.type === 'wiki_page');
     const paged = wikiPages.slice((page - 1) * pageSize, page * pageSize);
 

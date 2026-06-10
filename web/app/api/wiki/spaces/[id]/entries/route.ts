@@ -1,29 +1,16 @@
 /**
- * GET /api/wiki/spaces/[id]/entries?page=1&pageSize=20&directoryId=&type=&q=
- * POST /api/wiki/spaces/[id]/entries — create a wiki page
+ * Legacy compatibility route for flat wiki entries.
+ * GET /api/wiki/spaces/[id]/entries?page=1&pageSize=20&type=&q=
+ * POST /api/wiki/spaces/[id]/entries — create a wiki page without a space parent.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getWikiRepository } from '@/lib/wiki-engine';
-import { ensureMaterialSpaceExists } from '@/lib/wiki-materials';
-import { badRequest, notFound, serverError } from '@/lib/errors';
+import { badRequest, serverError } from '@/lib/errors';
 import type { ApiResponse } from '@/types';
+import type { WikiEntryRecord } from '@kivo/wiki';
 import { SearchApi } from '@kivo/wiki/search/search-api';
 import { createEmbeddingProvider } from '@kivo/embedding/create-provider';
-
-/**
- * Resolve the `default` literal alias (and missing IDs) to the real default-space UUID.
- * Returns the resolved id, or null when the caller-supplied id is not a wiki_space.
- * Reuses ensureMaterialSpaceExists (lib/wiki-materials.resolveSpaceId) so the web API
- * and the materials pipeline share the same alias semantics.
- */
-function resolveSpaceIdOrNull(rawId: string): string | null {
-  try {
-    return ensureMaterialSpaceExists(rawId);
-  } catch {
-    return null;
-  }
-}
 
 interface WikiEntryItem {
   id: string;
@@ -37,22 +24,6 @@ interface WikiEntryItem {
   matchReason?: string;
 }
 
-function collectPageIds(repo: ReturnType<typeof getWikiRepository>, nodeId: string): string[] {
-  const ids: string[] = [];
-  const visit = (parentId: string) => {
-    for (const child of repo.listChildren(parentId)) {
-      if (child.type === 'wiki_page') {
-        ids.push(child.id);
-        visit(child.id);
-      } else if (child.type === 'wiki_directory') {
-        visit(child.id);
-      }
-    }
-  };
-  visit(nodeId);
-  return ids;
-}
-
 function isEmptyExtractionShell(content: string | null | undefined): boolean {
   if (!content) return true;
   const trimmed = content.trim();
@@ -63,48 +34,34 @@ function isEmptyExtractionShell(content: string | null | undefined): boolean {
   return false;
 }
 
-function collectPages(repo: ReturnType<typeof getWikiRepository>, nodeId: string): WikiEntryItem[] {
-  const pages: WikiEntryItem[] = [];
-  const visit = (parentId: string) => {
-    for (const child of repo.listChildren(parentId)) {
-      if (child.type === 'wiki_page') {
-        // FR-3 (walkthrough P2-4): 过滤掉「暂未提取出合格知识条目」空壳占位。
-        if (isEmptyExtractionShell(child.content)) {
-          visit(child.id);
-          continue;
-        }
-        const parent = child.parentId ? repo.findById(child.parentId) : null;
-        pages.push({
-          id: child.id,
-          title: child.title,
-          summary: child.summary,
-          type: child.type,
-          knowledgeType: child.metadata?.extra?.knowledgeType as string || 'fact',
-          parentId: child.parentId,
-          parentTitle: parent?.title ?? null,
-          updatedAt: child.updatedAt,
-        });
-        visit(child.id);
-      } else if (child.type === 'wiki_directory') {
-        visit(child.id);
-      }
-    }
+function mapPage(repo: ReturnType<typeof getWikiRepository>, page: WikiEntryRecord): WikiEntryItem {
+  const parent = page.parentId ? repo.findById(page.parentId) : null;
+  return {
+    id: page.id,
+    title: page.title,
+    summary: page.summary,
+    type: page.type,
+    knowledgeType: page.metadata?.extra?.knowledgeType as string || 'fact',
+    parentId: page.parentId,
+    parentTitle: parent?.title ?? null,
+    updatedAt: page.updatedAt,
   };
-  visit(nodeId);
-  return pages;
+}
+
+function collectPages(repo: ReturnType<typeof getWikiRepository>): WikiEntryItem[] {
+  return repo
+    .listAllPages()
+    .filter((page) => !isEmptyExtractionShell(page.content))
+    .map((page) => mapPage(repo, page));
 }
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
+  context?: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { id: rawId } = await params;
+    await context?.params;
     const repo = getWikiRepository();
-    const id = resolveSpaceIdOrNull(rawId);
-    if (!id) return notFound(`Space ${rawId} not found`);
-    const space = repo.findById(id);
-    if (!space || space.type !== 'wiki_space') return notFound(`Space ${rawId} not found`);
 
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
@@ -113,9 +70,7 @@ export async function GET(
     const type = searchParams.get('type') || undefined;
     const tag = searchParams.get('tag')?.trim() || undefined;
     const query = searchParams.get('q')?.trim();
-    if (directoryId && repo.getSpaceIdForNode(directoryId) !== id) {
-      return badRequest('directoryId must belong to this space');
-    }
+    void directoryId;
 
     let items: WikiEntryItem[] = [];
 
@@ -124,11 +79,9 @@ export async function GET(
       const result = await searchApi.search({
         query,
         limit: 200,
-        scope: directoryId ? { directoryId } : { spaceId: id },
       });
-      const allowedPageIds = new Set(collectPageIds(repo, directoryId || id));
       items = result.items
-        .filter((item) => allowedPageIds.has(item.id) && item.type === 'wiki_page')
+        .filter((item) => item.type === 'wiki_page')
         .map((item) => ({
           id: item.id,
           title: item.title,
@@ -146,7 +99,7 @@ export async function GET(
           return !isEmptyExtractionShell(detail?.content);
         });
     } else {
-      items = collectPages(repo, directoryId || id);
+      items = collectPages(repo);
     }
 
     if (type) {
@@ -177,15 +130,11 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
+  context?: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { id: rawId } = await params;
+    await context?.params;
     const repo = getWikiRepository();
-    const id = resolveSpaceIdOrNull(rawId);
-    if (!id) return notFound(`Space ${rawId} not found`);
-    const space = repo.findById(id);
-    if (!space || space.type !== 'wiki_space') return notFound(`Space ${rawId} not found`);
 
     const body = await request.json();
     const { title, content, summary, type, tags, parentId } = body as {
@@ -200,20 +149,13 @@ export async function POST(
     if (!title?.trim()) return badRequest('title is required');
     if (!content?.trim()) return badRequest('content is required');
 
-    const actualParentId = parentId || id;
-    const parent = repo.findById(actualParentId);
-    if (!parent || (parent.type !== 'wiki_space' && parent.type !== 'wiki_directory')) {
-      return badRequest('parentId must be a space or directory');
-    }
-    if (actualParentId !== id && repo.getSpaceIdForNode(actualParentId) !== id) {
-      return badRequest('parentId must belong to this space');
-    }
+    void parentId;
 
     const page = repo.createPage({
       title: title.trim(),
       content: content.trim(),
       summary: summary?.trim() || '',
-      parentId: actualParentId,
+      parentId: null,
       tags: Array.isArray(tags) ? tags : [],
       metadata: {
         extra: {

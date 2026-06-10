@@ -72,6 +72,7 @@ export interface ExtractedItem {
   tags?: string[];
   similar_sentences?: string[];
   similarSentences?: string[];
+  why?: string;
 }
 
 export interface SessionExtractOptions {
@@ -119,7 +120,7 @@ export function validateFunction(v: string): KnowledgeFunction | undefined {
 
 // ── Prompt ───────────────────────────────────────────────────────────────────
 
-function buildSessionExtractionPrompt(segments: Segment[]): string {
+export function buildSessionExtractionPrompt(segments: Segment[]): string {
   const combined = segments
     .map(s => `[${s.timestamp}]\n${s.text}`)
     .join('\n\n---\n\n');
@@ -166,8 +167,9 @@ ${buildBehavioralChangeTestSection()}
 - 每条素材最终必须能支撑回答：它让 agent 在什么场景下避免什么错误。
 - 行为约束/铁律/系统 prompt 注入内容不是知识素材——它们是指令，不是理解模型。
 - 任务派发指令、一次性调度安排、排查步骤记录、临时优先级决策、具体文件路径、命令行、配置片段，全部禁止采集。
-- title 必须是 LLM 抽象归纳后的完整名词短语，≤20字；不能直接用原文当标题，不能写半句话，不能靠省略号或硬截断凑长度。
-- content 必须是 LLM 归纳后的结构化描述，独立于 title 详细说清楚：什么场景、什么原则、为什么这样做；content 不能和 title 相同，也不能只是 title 的扩写前半句。
+- title 必须是口语化的一句话，像在茶歇时跟同事说"你知道吗，XXX"，≤20字。禁止用技术术语（Agent/pipeline/hook/guard/harness）做主语；禁止写成名词短语或 AI 摘要风格。好标题："发现问题后必须自动派人修"、"改配置前先确认谁在用"。坏标题："场景应用边界"、"知识库双核心"（太抽象、不像人话）。
+- content/description 必须是这条候选素材的核心内容概述：比标题多一层细节，用一两句话说清楚「什么场景下、该做什么、不做会怎样」。禁止和 title 高度重复——不能只是标题换个说法再说一遍。
+- why 必须是独立的记录理由：一句话说"为什么值得记住这个"——通常是踩过坑的代价或违反后的后果。why 禁止复制 content/description/summary/title；无法从文本可靠推断时返回空字符串 ""。
 - similar_sentences 必须生成 2-3 条泛化相似表述，用于后续语义检索匹配，禁止复制原句。
 - 语义判断只能由 LLM 完成，禁止把关键词匹配、正则、FTS5 或规则引擎当作知识判断方法。
 
@@ -187,10 +189,10 @@ ${buildBehavioralChangeTestSection()}
 - confidence >= 0.7
 
 ## 正例（通过三重测试的素材）
-{"title":"语义理解禁用规则引擎","content":"涉及语义判断的环节必须用 LLM 或向量检索，关键词匹配和正则表达式不能承担语义理解职责"}
-{"title":"修复问题先堵根因","content":"修复问题时先定位并堵住根因，再处理表面症状；否则症状会反复出现"}
-{"title":"展示页简洁原则","content":"公开页面用按钮跳转详情，不写大段自我介绍文字"}
-{"title":"理解错误时停下确认","content":"AI 对概念理解有误时先停下来，等用户确认后再继续操作，避免错误扩散"}
+{"title":"语义理解不能用正则凑","content":"涉及语义判断的环节必须用 LLM 或向量检索，关键词匹配和正则不能承担语义理解——它们没有泛化能力","why":"曾因正则做分类导致系统瘫痪半天"}
+{"title":"修问题先堵根因再治表面","content":"修复问题时先定位并堵住根因，再处理表面症状；否则症状会反复出现","why":"不堵根因只治表面，同样的 bug 会反复冒出来浪费时间"}
+{"title":"展示页少废话多用按钮","content":"公开页面用按钮跳转详情，不写大段自我介绍文字；用户扫一眼就走","why":"大段文字没人看，跳出率高"}
+{"title":"理解错了先停下来确认","content":"AI 对概念理解有误时先停下来，等用户确认再继续；盲目推进只会越走越偏","why":"带着错误理解做下去，后面全部要返工"}后再继续操作，避免错误扩散"}
 {"title":"LLM 始终可用假设","content":"系统设计中 LLM 始终可用，不需要设计无 LLM 的降级路径"}
 {"title":"失败重试需变换策略","content":"同一方法连续失败两次后必须换策略，不能原样重试第三次"}
 
@@ -211,8 +213,9 @@ ${buildBehavioralChangeTestSection()}
 ✖ content:"LLM 是大语言模型的缩写" ← 通用常识（行为变化测试不通过）
 
 ## 格式约束（强制）
-- title: 素材的「名字」，LLM 抽象归纳后的完整名词短语，≤20字，禁止直接复制原文，禁止半句截断，禁止以 ... 或 … 结尾
-- content: LLM 归纳后的结构化描述，必须包含场景、原则、原因，自包含；不能和 title 相同，不能只重复 title
+- title: 口语化一句话，≤20字，像跟同事聊天时说的话。禁止写成名词短语、AI 摘要、技术术语堆砌。好："发现问题后必须派人修"。坏："场景应用边界"。
+- content/description: 比标题多一层细节，说清楚「什么场景下、该做什么、不做会怎样」。禁止和 title 高度重复。
+- why: 独立于 content，一句话说"为什么值得记住"——踩坑代价或违反后果。禁止相同或改写复述；无法推断时填空字符串 ""。
 - similar_sentences: 2-3 条泛化相似表述，用于语义检索匹配，禁止复制原句
 - 没有通过三重测试的内容就返回 []
 
@@ -223,7 +226,7 @@ ${buildBehavioralChangeTestSection()}
 
 ## 输出格式
 纯 JSON 数组：
-{"content":"独立详细描述：场景+原则+原因，不能和 title 相同","title":"≤20字完整短标题","nature":"<nature>","function":"<function>","domain":"<domain>","source":"session-material","confidence":0.0-1.0,"tags":["标签"],"similar_sentences":["泛化表述1","泛化表述2"]}
+{"content":"比标题多一层：什么场景下做什么、不做会怎样","why":"为什么值得记住；无法推断则为空字符串","title":"≤20字口语化短句","nature":"<nature>","function":"<function>","domain":"<domain>","source":"session-material","confidence":0.0-1.0,"tags":["标签"],"similar_sentences":["泛化表述1","泛化表述2"]}
 
 对话片段：
 ${combined}`;
@@ -250,6 +253,7 @@ interface StagingMaterialRow {
   tags_json: string;
   similar_sentences_json: string;
   source_refs_json: string;
+  why: string | null;
 }
 
 function parseJsonArray(raw: string | null | undefined): unknown[] {
@@ -276,6 +280,14 @@ function parseTagsJson(raw: string | null | undefined): string[] {
   return [];
 }
 
+function normalizeWhy(raw: string | undefined, content: string): string | undefined {
+  const why = raw?.trim() ?? '';
+  if (!why || why === '待补充') return undefined;
+  const normalizedWhy = why.replace(/\s+/g, ' ');
+  const normalizedContent = content.trim().replace(/\s+/g, ' ');
+  return normalizedWhy === normalizedContent ? undefined : why;
+}
+
 function rowToMaterial(row: StagingMaterialRow): KnowledgeMaterial {
   return {
     clusterId: row.cluster_id,
@@ -289,6 +301,7 @@ function rowToMaterial(row: StagingMaterialRow): KnowledgeMaterial {
     confidence: row.confidence ?? undefined,
     tags: parseTagsJson(row.tags_json),
     similarSentences: parseJsonArray(row.similar_sentences_json).filter((v): v is string => typeof v === 'string'),
+    why: normalizeWhy(row.why ?? undefined, row.content),
     sourceRefs: parseJsonArray(row.source_refs_json).map(v => {
       const ref = v as { sessionId?: unknown; timestamp?: unknown };
       return {
@@ -306,7 +319,7 @@ async function runStage2Aggregation(
   noQualityGate: boolean,
 ): Promise<number> {
   const rows = db.prepare(`
-    SELECT id, cluster_id, cluster_size, title, content, nature, function_tag, knowledge_domain,
+    SELECT id, cluster_id, cluster_size, title, content, why, nature, function_tag, knowledge_domain,
            source, confidence, tags_json, COALESCE(similar_sentences_json, '[]') AS similar_sentences_json, source_refs_json
     FROM staging_materials
     WHERE status = 'pending'
@@ -344,12 +357,14 @@ async function runStage2Aggregation(
       functionTag: normalized.functionTag,
       knowledgeDomain: normalized.domain,
       similarSentences: normalized.similarSentences,
+      why: normalized.why,
       createdAt: now,
       updatedAt: now,
       version: 1,
       metadata: {
         domainData: {
           contentHash,
+          ...(normalized.why ? { why: normalized.why } : {}),
           staging: normalized.provenance,
         },
       },
@@ -505,6 +520,7 @@ export async function extractSessionKnowledge(
         cluster_size INTEGER NOT NULL,
         title TEXT,
         content TEXT NOT NULL,
+        why TEXT,
         nature TEXT,
         function_tag TEXT,
         knowledge_domain TEXT,
@@ -526,7 +542,9 @@ export async function extractSessionKnowledge(
     if (!stagingColNames.has('similar_sentences_json')) {
       db.exec(`ALTER TABLE staging_materials ADD COLUMN similar_sentences_json TEXT NOT NULL DEFAULT '[]'`);
     }
-
+    if (!stagingColNames.has('why')) {
+      db.exec(`ALTER TABLE staging_materials ADD COLUMN why TEXT`);
+    }
     // FR-A05 AC6: processed_sessions dedup tracking
     db.exec(`CREATE TABLE IF NOT EXISTS processed_sessions (
       session_id TEXT PRIMARY KEY,
@@ -632,9 +650,9 @@ export async function extractSessionKnowledge(
 
       const insertStagingMaterial = db!.prepare(`
         INSERT INTO staging_materials (
-          id, cluster_id, cluster_size, title, content, nature, function_tag, knowledge_domain,
+          id, cluster_id, cluster_size, title, content, why, nature, function_tag, knowledge_domain,
           source, confidence, tags_json, similar_sentences_json, source_refs_json, content_hash, status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
         ON CONFLICT(content_hash) DO NOTHING
       `);
       const sourceRefs = segments
@@ -651,6 +669,7 @@ export async function extractSessionKnowledge(
           cluster.cluster_size,
           item.title ?? null,
           content,
+          normalizeWhy(item.why, content) ?? null,
           item.nature ?? null,
           item.function ?? null,
           item.domain ?? null,

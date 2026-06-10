@@ -161,7 +161,7 @@ export interface CreateDirectoryInput {
 export interface CreatePageInput {
   title: string;
   content: string;
-  parentId: string;
+  parentId?: string | null;
   summary?: string;
   tags?: string[];
   metadata?: WikiNodeMetadata;
@@ -209,7 +209,7 @@ export interface ResearchCollectInput {
 
 export interface ConfirmDraftInput {
   draft: WikiDraft;
-  parentId: string;
+  parentId?: string | null;
   title?: string;
   summary?: string;
   content?: string;

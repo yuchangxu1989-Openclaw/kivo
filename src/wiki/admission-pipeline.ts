@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import { AnalysisArtifactStore, type AnalysisArtifact, type AnalysisArtifactInput } from '../pipeline/analysis-artifact-store.js';
 import { SQLiteAnalysisArtifactStore } from '../pipeline/sqlite-analysis-artifact-store.js';
 import { WikiRepository } from './db/wiki-repository.js';
-import { SpaceManager } from './organization/space-manager.js';
 import type { WikiEntryRecord, WikiLinkRef, WikiPageSection } from './types.js';
 
 export interface ResearchAdmissionInput {
@@ -47,23 +46,14 @@ export class WikiAdmissionPipeline {
   private readonly repository: WikiRepository;
   private readonly artifactStore: ArtifactStoreLike;
   private readonly confidenceThreshold: number;
-  private readonly spaceManager: SpaceManager;
 
   constructor(options: WikiAdmissionPipelineOptions) {
     this.repository = options.repository;
     this.confidenceThreshold = options.confidenceThreshold ?? 0.7;
-    this.spaceManager = new SpaceManager(this.repository);
     this.artifactStore = options.artifactStore ?? createArtifactStore(this.repository);
   }
 
   async admitResearchReport(input: ResearchAdmissionInput): Promise<ResearchAdmissionResult> {
-    const space = input.spaceId
-      ? this.repository.findById(input.spaceId)
-      : this.spaceManager.ensureDefaultSpace();
-    if (!space || space.type !== 'wiki_space') {
-      throw new Error(`Wiki space not found: ${input.spaceId ?? 'default'}`);
-    }
-
     const draft = buildDraft(input);
     const confidence = scoreDraft(input.report, draft);
     const admissionState = confidence >= this.confidenceThreshold ? 'admitted' : 'pending_confirm';
@@ -72,7 +62,7 @@ export class WikiAdmissionPipeline {
     const page = this.repository.createPage({
       title: draft.title,
       content: draft.content,
-      parentId: space.id,
+      parentId: null,
       summary: draft.summary,
       tags: draft.tags,
       metadata: {

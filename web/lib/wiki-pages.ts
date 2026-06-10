@@ -13,11 +13,8 @@ export interface WikiPageDetailView {
 }
 
 export function resolveSpaceId(spaceToken?: string | null): string | undefined {
-  if (!spaceToken) return undefined;
-  const repo = getWikiRepository();
-  const normalized = slugify(spaceToken);
-  const matched = repo.listSpaces().find((space) => space.id === spaceToken || slugify(space.title) === normalized);
-  return matched?.id;
+  void spaceToken;
+  return undefined;
 }
 
 export function runWikiAdmission(input: {
@@ -41,16 +38,14 @@ export function aggregateWikiPage(input: { slug: string; title?: string; space?:
   return engine.aggregate({
     slug: input.slug,
     title: input.title,
-    spaceId: resolveSpaceId(input.space),
   });
 }
 
 export function getWikiPageDetailBySlug(slug: string, space?: string | null): WikiPageDetailView | null {
   const repo = getWikiRepository();
   const normalizedSlug = slugify(slug);
-  const spaceId = resolveSpaceId(space);
+  void space;
   const page = repo.listAllPages().find((candidate) => {
-    if (spaceId && repo.getSpaceIdForNode(candidate.id) !== spaceId) return false;
     const candidateSlug = String(candidate.metadata.extra?.slug ?? candidate.metadata.extra?.aggregateSlug ?? '');
     return candidateSlug === normalizedSlug;
   });

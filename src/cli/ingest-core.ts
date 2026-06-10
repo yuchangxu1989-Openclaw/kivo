@@ -85,6 +85,14 @@ function validateKnowledgeType(type: string): KnowledgeType {
   return 'fact';
 }
 
+function normalizeWhy(rawWhy: unknown, content: string): string | undefined {
+  const why = typeof rawWhy === 'string' ? rawWhy.trim() : '';
+  if (!why || why === '待补充') return undefined;
+  const normalizedWhy = why.replace(/\s+/g, ' ');
+  const normalizedContent = content.trim().replace(/\s+/g, ' ');
+  return normalizedWhy === normalizedContent ? undefined : why;
+}
+
 function buildLlmExtractionPrompt(chunkContent: string, filePath: string): string {
   return `从以下文本中提取有价值的知识条目。
 
@@ -101,6 +109,7 @@ function buildLlmExtractionPrompt(chunkContent: string, filePath: string): strin
 每条知识包含：
 - title: LLM 抽象归纳后的短标题（≤30字），禁止直接用原文当标题
 - content: LLM 归纳后的结构化描述，说明什么场景、什么原则、为什么这样做
+- why: 独立说明这条知识为什么重要、缺失它会导致什么错误；禁止复制 content/summary/title，无法可靠推断时返回空字符串
 - type: intent/methodology/fact/experience/decision/meta 之一
 - tags: 相关标签数组
 - similar_sentences: 2-3 条泛化相似表述，用于后续语义检索匹配，禁止复制原句
@@ -120,7 +129,7 @@ function buildLlmExtractionPrompt(chunkContent: string, filePath: string): strin
 ${chunkContent}`;
 }
 
-function parseLlmResponse(raw: string): Array<{ title: string; content: string; type: string; tags: string[]; similar_sentences?: string[] }> {
+function parseLlmResponse(raw: string): Array<{ title: string; content: string; why?: string; type: string; tags: string[]; similar_sentences?: string[] }> {
   let cleaned = raw.trim();
   if (cleaned.startsWith('```')) {
     cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
@@ -144,7 +153,7 @@ function parseLlmResponse(raw: string): Array<{ title: string; content: string; 
               .map((s: string) => s.length > 200 ? s.slice(0, 200) : s)
               .slice(0, 15);
           }
-          return item as { title: string; content: string; type: string; tags: string[]; similar_sentences?: string[] };
+          return item as { title: string; content: string; why?: string; type: string; tags: string[]; similar_sentences?: string[] };
         });
     }
     return [];
@@ -245,7 +254,7 @@ export async function runIngestCore(options: IngestCoreOptions): Promise<IngestC
         // Dedup will be handled at entry level by content-hash or during batch vectorization.
 
         // Step 3: LLM semantic extraction
-        let extracted: Array<{ title: string; content: string; type: string; tags: string[]; similar_sentences?: string[] }>;
+        let extracted: Array<{ title: string; content: string; why?: string; type: string; tags: string[]; similar_sentences?: string[] }>;
         try {
           const rawResponse = await llmProvider.complete(
             buildLlmExtractionPrompt(chunk.content, relPath),
@@ -289,6 +298,7 @@ export async function runIngestCore(options: IngestCoreOptions): Promise<IngestC
           const now = new Date();
           const knowledgeType = validateKnowledgeType(sidecarType ?? item.type);
 
+          const why = normalizeWhy(item.why, item.content);
           const entry: KnowledgeEntry = {
             id: entryId,
             type: knowledgeType,
@@ -302,17 +312,19 @@ export async function runIngestCore(options: IngestCoreOptions): Promise<IngestC
             similarSentences: Array.isArray(item.similar_sentences) && item.similar_sentences.length > 0
               ? item.similar_sentences.filter((s: unknown) => typeof s === 'string').slice(0, 3)
               : undefined,
+            why,
             createdAt: now,
             updatedAt: now,
             version: 1,
-            metadata: sidecarMetadata ? {
-              ...sidecarMetadata,
+            metadata: {
+              ...(sidecarMetadata ?? {}),
+              ...(why ? { domainData: { ...((sidecarMetadata?.domainData as Record<string, unknown> | undefined) ?? {}), why } } : {}),
               sourceRange: {
                 documentId: sourceReference,
-                page: typeof sidecarMetadata.sourcePage === 'number' ? sidecarMetadata.sourcePage : undefined,
+                page: typeof sidecarMetadata?.sourcePage === 'number' ? sidecarMetadata.sourcePage : undefined,
                 originalText: item.content,
               },
-            } : undefined,
+            },
             sourceRange: sidecarMetadata ? {
               documentId: sourceReference,
               page: typeof sidecarMetadata.sourcePage === 'number' ? sidecarMetadata.sourcePage : undefined,

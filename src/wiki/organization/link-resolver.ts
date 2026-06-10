@@ -31,9 +31,8 @@ export class LinkResolver {
     if (!page || page.type !== 'wiki_page') {
       throw new Error(`Wiki page ${pageId} not found`);
     }
-    const spaceId = this.repository.getSpaceIdForNode(pageId) ?? undefined;
     const links = this.extractLinks(page.content).map((link) => {
-      const target = this.repository.findPageByTitle(link.targetTitle, spaceId);
+      const target = this.repository.findPageByTitle(link.targetTitle);
       return {
         targetPageId: target?.id ?? null,
         targetTitle: link.targetTitle,

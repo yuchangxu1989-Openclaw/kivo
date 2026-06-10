@@ -1,6 +1,6 @@
 /**
  * FR-2 AC-2.1, AC-2.2, AC-2.7, NFR-5, NFR-6
- * CRUD and tree queries for wiki Space/Directory/Page objects.
+ * CRUD and queries for flat wiki knowledge entries.
  */
 
 import Database from 'better-sqlite3';
@@ -212,11 +212,14 @@ export class WikiRepository {
   }
 
   createPage(input: CreatePageInput): WikiEntryRecord {
-    this.assertParentType(input.parentId, ['wiki_space', 'wiki_directory']);
+    if (input.parentId) {
+      this.assertParentType(input.parentId, ['wiki_space', 'wiki_directory']);
+    }
     const id = randomUUID();
     const ts = nowIso();
     const hierarchicalTags = this.ensureTags(input.tags ?? []);
     const metadata = mergeMetadata({ tags: hierarchicalTags.map((tag) => tag.path) }, input.metadata);
+    const parentId = input.parentId ?? null;
     this.db.prepare(`
       INSERT INTO entries (
         id, type, title, content, summary, source_json, status, tags_json,
@@ -229,8 +232,8 @@ export class WikiRepository {
       input.summary ?? '',
       JSON.stringify(hierarchicalTags.map((tag) => tag.path)),
       JSON.stringify(metadata),
-      input.parentId,
-      input.sortOrder ?? this.nextSortOrder(input.parentId),
+      parentId,
+      input.sortOrder ?? (parentId ? this.nextSortOrder(parentId) : 0),
       encodeEmbedding(input.embedding),
       ts,
       ts,
@@ -242,7 +245,7 @@ export class WikiRepository {
 
   updatePage(id: string, input: UpdatePageInput): WikiEntryRecord {
     const current = this.getRequiredById(id, 'wiki_page');
-    if (input.parentId) {
+    if (input.parentId !== undefined && input.parentId !== null) {
       this.assertParentType(input.parentId, ['wiki_space', 'wiki_directory']);
     }
     const ts = nowIso();
@@ -258,7 +261,7 @@ export class WikiRepository {
       input.title ?? current.title,
       input.content ?? current.content,
       input.summary ?? current.summary,
-      input.parentId ?? current.parentId,
+      input.parentId === undefined ? current.parentId : input.parentId,
       input.sortOrder ?? current.sortOrder,
       JSON.stringify(tags),
       JSON.stringify(metadata),
@@ -314,6 +317,7 @@ export class WikiRepository {
   }
 
   findPageByTitle(title: string, spaceId?: string): WikiEntryRecord | null {
+    void spaceId;
     const rows = this.db.prepare(`
       SELECT e.*
       FROM entries e
@@ -322,13 +326,11 @@ export class WikiRepository {
         AND e.deleted_at IS NULL
       ORDER BY e.updated_at DESC
     `).all(title) as EntryRow[];
-    if (!spaceId) {
-      return rows[0] ? this.mapRow(rows[0]) : null;
-    }
-    return rows.map((row) => this.mapRow(row)).find((row) => this.getSpaceIdForNode(row.id) === spaceId) ?? null;
+    return rows[0] ? this.mapRow(rows[0]) : null;
   }
 
   findPageBySourceUri(uri: string, spaceId?: string): WikiEntryRecord | null {
+    void spaceId;
     const rows = this.db.prepare(`
       SELECT *
       FROM entries
@@ -337,10 +339,7 @@ export class WikiRepository {
         AND json_extract(metadata_json, '$.source.uri') = ?
       ORDER BY updated_at DESC
     `).all(uri) as EntryRow[];
-    if (!spaceId) {
-      return rows[0] ? this.mapRow(rows[0]) : null;
-    }
-    return rows.map((row) => this.mapRow(row)).find((row) => this.getSpaceIdForNode(row.id) === spaceId) ?? null;
+    return rows[0] ? this.mapRow(rows[0]) : null;
   }
 
   listChildren(parentId: string): WikiEntryRecord[] {
@@ -623,6 +622,7 @@ export class WikiRepository {
     const rows = this.db.prepare(`
       SELECT * FROM entries
       WHERE embedding IS NOT NULL
+        AND type = 'wiki_page'
         AND deleted_at IS NULL
         AND status = 'active'
     `).all() as EntryRow[];
@@ -654,25 +654,17 @@ export class WikiRepository {
    * Uses LIKE matching (FTS5 virtual table can be added as optimization).
    */
   search(query: string, scope?: { spaceId?: string; directoryId?: string }): WikiEntryRecord[] {
+    void scope;
     let sql = `
       SELECT * FROM entries
       WHERE deleted_at IS NULL
         AND status = 'active'
+        AND type = 'wiki_page'
         AND (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\')
     `;
     const escaped = query.replace(/[%_]/g, '\\$&');
     const pattern = `%${escaped}%`;
     const params: unknown[] = [pattern, pattern, pattern];
-
-    if (scope?.directoryId) {
-      sql += ` AND parent_id = ?`;
-      params.push(scope.directoryId);
-    } else if (scope?.spaceId) {
-      sql += ` AND (parent_id = ? OR parent_id IN (
-        SELECT id FROM entries WHERE parent_id = ? AND type = 'wiki_directory'
-      ))`;
-      params.push(scope.spaceId, scope.spaceId);
-    }
 
     sql += ` ORDER BY updated_at DESC LIMIT 50`;
 

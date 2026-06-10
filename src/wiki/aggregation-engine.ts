@@ -1,5 +1,4 @@
 import { WikiRepository } from './db/wiki-repository.js';
-import { SpaceManager } from './organization/space-manager.js';
 import type { WikiEntryRecord, WikiLinkRecord } from './types.js';
 import { slugify } from './admission-pipeline.js';
 
@@ -29,30 +28,21 @@ export interface WikiAggregationEngineOptions {
 
 export class WikiAggregationEngine {
   private readonly repository: WikiRepository;
-  private readonly spaceManager: SpaceManager;
 
   constructor(options: WikiAggregationEngineOptions) {
     this.repository = options.repository;
-    this.spaceManager = new SpaceManager(this.repository);
   }
 
   aggregate(request: WikiAggregationRequest): WikiAggregationResult {
     const normalizedSlug = slugify(request.slug || request.title || 'wiki-page');
-    const space = request.spaceId
-      ? this.repository.findById(request.spaceId)
-      : this.spaceManager.ensureDefaultSpace();
-    if (!space || space.type !== 'wiki_space') {
-      throw new Error(`Wiki space not found: ${request.spaceId ?? 'default'}`);
-    }
-
-    const candidates = this.collectSourcePages(space.id, normalizedSlug);
+    const candidates = this.collectSourcePages(normalizedSlug);
     if (candidates.length === 0) {
       throw new Error(`No wiki sources found for slug: ${normalizedSlug}`);
     }
 
     const aggregateTitle = request.title?.trim() || candidates[0].title;
     const compiled = compileAggregate(candidates, aggregateTitle, normalizedSlug);
-    const existing = this.findAggregatePage(space.id, normalizedSlug);
+    const existing = this.findAggregatePage(normalizedSlug);
 
     const page = existing
       ? this.repository.updatePage(existing.id, {
@@ -63,7 +53,7 @@ export class WikiAggregationEngine {
           status: 'active',
           metadata: compiled.metadata,
         })
-      : this.createAggregatePage(space.id, compiled);
+      : this.createAggregatePage(compiled);
 
     const links = Array.from(new Map(candidates.map((candidate) => [
       `${candidate.title}:${candidate.id}`,
@@ -97,30 +87,28 @@ export class WikiAggregationEngine {
     };
   }
 
-  private collectSourcePages(spaceId: string, slug: string): WikiEntryRecord[] {
+  private collectSourcePages(slug: string): WikiEntryRecord[] {
     return this.repository
       .listAllPages()
-      .filter((page) => this.repository.getSpaceIdForNode(page.id) === spaceId)
       .filter((page) => page.metadata.extra?.aggregateRole !== 'aggregate')
       .filter((page) => matchesSlug(page, slug))
       .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
   }
 
-  private findAggregatePage(spaceId: string, slug: string): WikiEntryRecord | null {
+  private findAggregatePage(slug: string): WikiEntryRecord | null {
     return this.repository
       .listAllPages()
       .find((page) =>
-        this.repository.getSpaceIdForNode(page.id) === spaceId &&
         page.metadata.extra?.aggregateRole === 'aggregate' &&
         page.metadata.extra?.slug === slug,
       ) ?? null;
   }
 
-  private createAggregatePage(spaceId: string, compiled: ReturnType<typeof compileAggregate>): WikiEntryRecord {
+  private createAggregatePage(compiled: ReturnType<typeof compileAggregate>): WikiEntryRecord {
     const placeholder = this.repository.createPage({
       title: compiled.title,
       content: '聚合初始化中',
-      parentId: spaceId,
+      parentId: null,
       summary: compiled.summary,
       tags: compiled.tags,
       metadata: compiled.metadata,

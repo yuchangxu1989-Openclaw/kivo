@@ -64,10 +64,6 @@ export async function PATCH(
 
     if (title !== undefined && !title.trim()) return badRequest('title cannot be empty');
     if (content !== undefined && !content.trim()) return badRequest('content cannot be empty');
-    if (parentId && repo.getSpaceIdForNode(parentId) !== repo.getSpaceIdForNode(id)) {
-      return badRequest('parentId must remain in the same space');
-    }
-
     repo.updatePage(id, {
       title: title?.trim(),
       content: content?.trim(),

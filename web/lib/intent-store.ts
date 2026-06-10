@@ -275,7 +275,7 @@ export async function upsertIntent(input: { id?: string; name: string; descripti
       `).run(
         name,
         description,
-        why || description,
+        why || existing.why || null,
         JSON.stringify(similarSentences),
         input.confidence ?? existing.confidence,
         now,

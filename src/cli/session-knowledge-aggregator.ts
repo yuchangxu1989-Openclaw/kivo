@@ -17,6 +17,7 @@ export interface KnowledgeMaterial {
   confidence?: number;
   tags?: string[];
   similarSentences?: string[];
+  why?: string;
   sourceRefs: Array<{
     sessionId: string;
     timestamp: string;
@@ -52,6 +53,7 @@ function buildAggregationPrompt(materials: KnowledgeMaterial[]): string {
 领域：${m.domain ?? ''}
 标签：${(m.tags ?? []).join(', ')}
 相似表述：${(m.similarSentences ?? []).join(' | ')}
+记录理由：${m.why ?? ''}
 来源：${refs}
 内容：${m.content}`;
   }).join('\n\n');
@@ -68,15 +70,17 @@ ${buildBehavioralChangeTestSection()}
 3. 一次性决策、临时调度、排查过程、任务派发、阶段性状态，不能直接产出知识。
 4. 如果素材只能证明「当时发生过什么」，不能证明「以后应如何理解或行动」，返回 []。
 5. 每条产出必须同时通过三个问题：三个月后还有效吗？换项目/换任务还适用吗？去掉时间、人名、项目名后仍有指导价值吗？
-6. title 必须是 LLM 抽象归纳后的完整名词短语（≤20字），不能直接用原文当标题，不能写半句话，不能靠省略号或硬截断凑长度。
-7. content 必须是 LLM 归纳后的结构化描述，独立于 title 详细说明场景、原则、原因；content 不能和 title 相同，也不能只是 title 的重复。
-8. similar_sentences 必须生成 2-3 条泛化相似表述，用于后续语义检索匹配；可参考输入素材里的相似表述，但不能照搬原文。
-9. 允许一批素材产出 0 条。宁缺毋滥。
-10. 每条知识必须回答：它让 agent 在什么场景下避免什么错误。
+6. title 必须是口语化一句话（≤20字），像跟同事聊天说"你知道吗，XXX"。禁止写成名词短语或 AI 摘要，禁止用 Agent/pipeline/hook 等技术术语做主语。好："发现问题后必须派人修"。坏："场景应用边界"。
+7. content/description 必须比标题多一层细节，用一两句话说清楚「什么场景下、该做什么、不做会怎样」。禁止和 title 高度重复。
+8. why 必须独立于 content，一句话说"为什么值得记住"——踩坑代价或违反后果。why 禁止复制 content/description/summary/title，也不能只是改写复述；无法从素材可靠推断时返回空字符串 ""。
+9. similar_sentences 必须生成 2-3 条泛化相似表述，用于后续语义检索匹配；可参考输入素材里的相似表述，但不能照搬原文。
+10. 允许一批素材产出 0 条。宁缺毋滥。
+11. 每条知识必须回答：它让 agent 在什么场景下避免什么错误。
 
 ## 输出约束
-- title：LLM 抽象归纳后的完整名词短语，≤20字，禁止半句截断，禁止以 ... 或 … 结尾。
-- content：自包含，直接陈述可复用理解，包含场景、原则、原因；不能和 title 相同，不能只重复 title。
+- title：口语化一句话，≤20字，像跟同事聊天时说的话。禁止名词短语、AI 摘要风格。
+- content/description：比标题多一层细节，说清楚场景+做法+不做会怎样。禁止和 title 高度重复。
+- why：独立于 content，一句话说踩坑代价或违反后果。禁止相同或改写复述；无法推断时填空字符串 ""。
 - similar_sentences：2-3 条泛化相似表述，用于语义检索匹配。
 - 禁止写「用户说」「这次」「当前」「刚才」「今天」「已完成」「正在」等对话过程词。
 - nature：fact / concept / rule / procedure / heuristic。
@@ -85,7 +89,7 @@ ${buildBehavioralChangeTestSection()}
 - materialIds：使用输入素材序号，如 [1,2]。
 
 返回纯 JSON 数组：
-[{"title":"≤20字完整短标题","content":"独立详细描述：场景+原则+原因，不能和 title 相同","nature":"rule","function":"quality_gate","domain":"","source":"session-aggregate","confidence":0.0,"tags":[""],"similar_sentences":["泛化表述1","泛化表述2"],"materialIds":[1,2]}]
+[{"title":"≤20字口语化短句","content":"比标题多一层：什么场景下做什么、不做会怎样","why":"为什么值得记住；无法推断则为空字符串","nature":"rule","function":"quality_gate","domain":"","source":"session-aggregate","confidence":0.0,"tags":[""],"similar_sentences":["泛化表述1","泛化表述2"],"materialIds":[1,2]}]
 
 输入素材：
 ${materialList}`;
@@ -170,8 +174,17 @@ export function extractedItemToMaterial(
       : Array.isArray(item.similarSentences)
         ? item.similarSentences.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, 3)
         : undefined,
+    why: item.why,
     sourceRefs,
   };
+}
+
+function normalizeWhy(raw: string | undefined, content: string): string | undefined {
+  const why = raw?.trim() ?? '';
+  if (!why || why === '待补充') return undefined;
+  const normalizedWhy = why.replace(/\s+/g, ' ');
+  const normalizedContent = content.trim().replace(/\s+/g, ' ');
+  return normalizedWhy === normalizedContent ? undefined : why;
 }
 
 export function normalizeAggregatedItem(item: AggregatedKnowledgeItem): {
@@ -184,16 +197,19 @@ export function normalizeAggregatedItem(item: AggregatedKnowledgeItem): {
   confidence: number;
   tags: string[];
   similarSentences?: string[];
+  why?: string;
   provenance: Record<string, unknown>;
 } {
   const nature = validateNature(item.nature) as KnowledgeNature | undefined;
   const functionTag = validateFunction(item.function) as KnowledgeFunction | undefined;
   const legacyType = (nature ? (NATURE_TO_TYPE[nature] ?? 'fact') : 'fact') as KnowledgeType;
   const content = item.content.trim();
+  const why = normalizeWhy(item.why, content);
   const confidence = typeof item.confidence === 'number' ? Math.min(1, Math.max(0, item.confidence)) : 0.7;
   return {
     title: shortenKnowledgeTitle(item.title, content),
     content,
+    why,
     nature,
     functionTag,
     legacyType,

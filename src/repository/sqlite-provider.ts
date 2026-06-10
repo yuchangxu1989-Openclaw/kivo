@@ -31,6 +31,14 @@ function clampWeight(value: number): number {
   return Math.max(0, Math.min(1, n));
 }
 
+function normalizeWhyValue(raw: string | null | undefined, content: string): string | undefined {
+  const why = raw?.trim() ?? '';
+  if (!why || why === '待补充') return undefined;
+  const normalizedWhy = why.replace(/\s+/g, ' ');
+  const normalizedContent = content.trim().replace(/\s+/g, ' ');
+  return normalizedWhy === normalizedContent ? undefined : why;
+}
+
 /** Map an FTS5 bm25 rank (<= 0, more negative = stronger) to a (0, 1) score. */
 function ftsRankToScore(rank: number): number {
   if (!Number.isFinite(rank)) return 0.5;
@@ -112,7 +120,9 @@ export class SQLiteProvider implements StorageProvider {
     if (!colNames.has('entry_type')) {
       this.db.exec(`ALTER TABLE entries ADD COLUMN entry_type TEXT`);
     }
-
+    if (!colNames.has('why')) {
+      this.db.exec(`ALTER TABLE entries ADD COLUMN why TEXT`);
+    }
     ensureIntentSchema(this.db);
 
     // Migrate: if entries_fts exists but uses old tokenizer (not trigram), drop and recreate
@@ -341,13 +351,18 @@ export class SQLiteProvider implements StorageProvider {
     const sourceJson = JSON.stringify(entry.source);
     const tagsJson = JSON.stringify(entry.tags);
     const similarSentencesJson = JSON.stringify(entry.similarSentences ?? []);
+    const why = normalizeWhyValue(entry.why, entry.content) ?? null;
     const nature = entry.nature ?? null;
     const functionTag = entry.functionTag ?? null;
     const knowledgeDomain = entry.knowledgeDomain ?? null;
     const subjectId = entry.subjectId ?? entry.source?.subjectId ?? null;
     const entryType = entry.entryType ?? null;
-    const metadataJson = entry.metadata || entry.sourceRange
-      ? JSON.stringify({ ...(entry.metadata ?? {}), ...(entry.sourceRange ? { sourceRange: entry.sourceRange } : {}) })
+    const metadataJson = entry.metadata || entry.sourceRange || why
+      ? JSON.stringify({
+        ...(entry.metadata ?? {}),
+        ...(why ? { domainData: { ...((entry.metadata?.domainData as Record<string, unknown> | undefined) ?? {}), why } } : {}),
+        ...(entry.sourceRange ? { sourceRange: entry.sourceRange } : {}),
+      })
       : null;
     const embeddingBlob = gateDecision?.embedding ? Buffer.from(new Float32Array(gateDecision.embedding).buffer) : null;
 
@@ -356,22 +371,22 @@ export class SQLiteProvider implements StorageProvider {
 
       if (existing) {
         this.db.prepare(`
-          UPDATE entries SET type = ?, title = ?, content = ?, summary = ?, source_json = ?,
+          UPDATE entries SET type = ?, title = ?, content = ?, summary = ?, why = ?, source_json = ?,
             confidence = ?, status = ?, tags_json = ?, domain = ?, version = ?,
             supersedes = ?, similar_sentences = ?, nature = ?, function_tag = ?, knowledge_domain = ?, metadata_json = ?, subject_id = ?, entry_type = ?, updated_at = ?
           WHERE id = ?
         `).run(
-          entry.type, normalizedTitle, entry.content, entry.summary, sourceJson,
+          entry.type, normalizedTitle, entry.content, entry.summary, why, sourceJson,
           entry.confidence, entry.status, tagsJson, entry.domain ?? null,
           existing.version + 1, entry.supersedes ?? null, similarSentencesJson,
           nature, functionTag, knowledgeDomain, metadataJson, subjectId, entryType, now, entry.id
         );
       } else {
         this.db.prepare(`
-          INSERT INTO entries (id, type, title, content, summary, source_json, confidence, status, tags_json, domain, version, supersedes, similar_sentences, nature, function_tag, knowledge_domain, metadata_json, embedding, subject_id, entry_type, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO entries (id, type, title, content, summary, why, source_json, confidence, status, tags_json, domain, version, supersedes, similar_sentences, nature, function_tag, knowledge_domain, metadata_json, embedding, subject_id, entry_type, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
-          entry.id, entry.type, normalizedTitle, entry.content, entry.summary, sourceJson,
+          entry.id, entry.type, normalizedTitle, entry.content, entry.summary, why, sourceJson,
           entry.confidence, entry.status, tagsJson, entry.domain ?? null,
           entry.version ?? 1, entry.supersedes ?? null, similarSentencesJson,
           nature, functionTag, knowledgeDomain, metadataJson, embeddingBlob, subjectId, entryType,
@@ -742,6 +757,7 @@ export class SQLiteProvider implements StorageProvider {
       title: row.title,
       content: row.content,
       summary: row.summary,
+      why: normalizeWhyValue(row.why ?? (typeof metadata?.domainData?.why === 'string' ? metadata.domainData.why : undefined), row.content),
       source: JSON.parse(row.source_json) as KnowledgeSource,
       confidence: row.confidence,
       status: row.status as EntryStatus,
@@ -770,6 +786,7 @@ interface EntryRow {
   content: string;
   summary: string;
   source_json: string;
+  why?: string | null;
   confidence: number;
   status: string;
   tags_json: string;

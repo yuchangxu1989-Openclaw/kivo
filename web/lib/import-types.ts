@@ -20,6 +20,7 @@ export interface ImportCandidate {
   type: string;
   title: string;
   content: string;
+  why?: string;
   sourceAnchor: string;
   sourceContext?: string;
   sourceDocument?: string;
