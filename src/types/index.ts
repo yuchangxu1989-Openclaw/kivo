@@ -127,7 +127,7 @@ export interface KnowledgeIO {
 /**
  * Nature dimension — what kind of knowledge this is (FR-B05).
  */
-export type KnowledgeNature = 'fact' | 'decision' | 'methodology' | 'experience' | 'meta';
+export type KnowledgeNature = 'fact' | 'decision' | 'methodology' | 'experience' | 'intent' | 'meta';
 
 /**
  * Function dimension — how this knowledge is used (FR-B05).

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import { buildSessionExtractionPrompt } from '../session-knowledge-llm.js';
 import { normalizeAggregatedItem, type AggregatedKnowledgeItem } from '../session-knowledge-aggregator.js';
+import { buildHumanReadableIntentStyleSection } from '../../standards/index.js';
 import { SQLiteProvider } from '../../repository/sqlite-provider.js';
 import type { KnowledgeEntry } from '../../types/index.js';
 
@@ -17,10 +18,14 @@ describe('session extraction why field', () => {
       },
     ]);
 
-    expect(prompt).toContain('content/description 必须是这条候选素材的核心内容概述');
-    expect(prompt).toContain('why 必须是独立的记录理由');
-    expect(prompt).toContain('why 禁止复制 content/description/summary/title');
-    expect(prompt).toContain('不能和 content 相同');
+    const styleSection = buildHumanReadableIntentStyleSection();
+
+    expect(prompt).toContain(styleSection);
+    expect(styleSection).toContain('title 必须是完整的人话句子，10-25字');
+    expect(styleSection).toContain('用向量检索代替正则做语义判断');
+    expect(styleSection).toContain('坏标题："语义禁用规则凑"');
+    expect(styleSection).toContain('content/description 必须有具体场景');
+    expect(styleSection).toContain('why 禁止复制 content/description/summary/title');
   });
 
   it('drops generated why when it duplicates content', () => {

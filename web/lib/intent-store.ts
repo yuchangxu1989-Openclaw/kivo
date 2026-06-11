@@ -184,7 +184,7 @@ function getLegacyIntentRows(status: IntentStatus = 'active'): LegacyIntentRow[]
   return dbConn.prepare(`
     SELECT id, title, content, summary, similar_sentences, status, confidence, created_at, updated_at, last_hit_at, metadata_json
     FROM entries
-    WHERE type = 'intent' AND status = ?
+    WHERE status = ? AND (type = 'intent' OR (why IS NOT NULL AND trim(why) != ''))
     ORDER BY updated_at DESC
     LIMIT 200
   `).all(status) as LegacyIntentRow[];
@@ -197,7 +197,7 @@ function getLegacyIntentRowById(id: string): LegacyIntentRow | undefined {
   return dbConn.prepare(`
     SELECT id, title, content, summary, similar_sentences, status, confidence, created_at, updated_at, last_hit_at, metadata_json
     FROM entries
-    WHERE id = ? AND type = 'intent'
+    WHERE id = ? AND (type = 'intent' OR (why IS NOT NULL AND trim(why) != ''))
   `).get(id) as LegacyIntentRow | undefined;
 }
 

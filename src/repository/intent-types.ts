@@ -2,6 +2,8 @@ export interface IntentRecord {
   id: string;
   name: string;
   description: string;
+  why?: string;
+  similarSentences?: string[];
   positives: string[];
   negatives: string[];
   status: 'active' | 'archived';
@@ -19,6 +21,8 @@ export interface IntentInput {
   id?: string;
   name: string;
   description: string;
+  why?: string;
+  similarSentences?: string[];
   positives?: string[];
   negatives?: string[];
   status?: 'active' | 'archived';

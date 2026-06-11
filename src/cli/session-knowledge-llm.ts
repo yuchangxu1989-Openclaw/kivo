@@ -15,7 +15,14 @@ import { DEFAULT_CONFIG } from '../config/types.js';
 import { resolveLlmConfig } from './resolve-llm-config.js';
 import { OpenAILLMProvider, resolveLlmTimeoutMs } from '../extraction/llm-extractor.js';
 import { KnowledgeRepository, SQLiteProvider } from '../repository/index.js';
-import { buildBehavioralChangeTestSection, buildKnowledgeAdmissionBoundarySection } from '../standards/index.js';
+import { IntentRepository } from '../repository/intent-repository.js';
+import { createEmbeddingProvider } from '../embedding/create-provider.js';
+import type { EmbeddingProvider } from '../embedding/embedding-provider.js';
+import {
+  buildBehavioralChangeTestSection,
+  buildHumanReadableIntentStyleSection,
+  buildKnowledgeAdmissionBoundarySection,
+} from '../standards/index.js';
 import { aggregateKnowledgeMaterials, normalizeAggregatedItem, type KnowledgeMaterial } from './session-knowledge-aggregator.js';
 import type { KnowledgeEntry, KnowledgeType, KnowledgeNature, KnowledgeFunction } from '../types/index.js';
 
@@ -102,10 +109,11 @@ export const NATURE_TO_TYPE: Record<string, KnowledgeType> = {
   decision: 'decision',
   methodology: 'methodology',
   experience: 'experience',
+  intent: 'intent',
   meta: 'meta',
 };
 
-const VALID_NATURES = new Set(['fact', 'decision', 'methodology', 'experience', 'meta']);
+const VALID_NATURES = new Set(['fact', 'decision', 'methodology', 'experience', 'intent', 'meta']);
 const VALID_FUNCTIONS = new Set(['constraint', 'preference', 'pattern', 'principle']);
 
 export function validateNature(v: string): KnowledgeNature | undefined {
@@ -167,11 +175,10 @@ ${buildBehavioralChangeTestSection()}
 - 每条素材最终必须能支撑回答：它让 agent 在什么场景下避免什么错误。
 - 行为约束/铁律/系统 prompt 注入内容不是知识素材——它们是指令，不是理解模型。
 - 任务派发指令、一次性调度安排、排查步骤记录、临时优先级决策、具体文件路径、命令行、配置片段，全部禁止采集。
-- title 必须是口语化的一句话，像在茶歇时跟同事说"你知道吗，XXX"，≤20字。禁止用技术术语（Agent/pipeline/hook/guard/harness）做主语；禁止写成名词短语或 AI 摘要风格。好标题："发现问题后必须自动派人修"、"改配置前先确认谁在用"。坏标题："场景应用边界"、"知识库双核心"（太抽象、不像人话）。
-- content/description 必须是这条候选素材的核心内容概述：比标题多一层细节，用一两句话说清楚「什么场景下、该做什么、不做会怎样」。禁止和 title 高度重复——不能只是标题换个说法再说一遍。
-- why 必须是独立的记录理由：一句话说"为什么值得记住这个"——通常是踩过坑的代价或违反后的后果。why 禁止复制 content/description/summary/title；无法从文本可靠推断时返回空字符串 ""。
-- similar_sentences 必须生成 2-3 条泛化相似表述，用于后续语义检索匹配，禁止复制原句。
+- 如果素材表达用户偏好、行为模式、意图映射或研发流程期望，nature 输出 "intent"，后续会进入独立意图库。
 - 语义判断只能由 LLM 完成，禁止把关键词匹配、正则、FTS5 或规则引擎当作知识判断方法。
+
+${buildHumanReadableIntentStyleSection()}
 
 ## 术语识别（FR-H05 补充采集）
 除上述素材外，当对话中出现专有名词/术语定义时，额外提取为术语条目。术语条目不受三重测试约束（术语本身是长期有效的事实）。
@@ -189,12 +196,12 @@ ${buildBehavioralChangeTestSection()}
 - confidence >= 0.7
 
 ## 正例（通过三重测试的素材）
-{"title":"语义理解不能用正则凑","content":"涉及语义判断的环节必须用 LLM 或向量检索，关键词匹配和正则不能承担语义理解——它们没有泛化能力","why":"曾因正则做分类导致系统瘫痪半天"}
-{"title":"修问题先堵根因再治表面","content":"修复问题时先定位并堵住根因，再处理表面症状；否则症状会反复出现","why":"不堵根因只治表面，同样的 bug 会反复冒出来浪费时间"}
-{"title":"展示页少废话多用按钮","content":"公开页面用按钮跳转详情，不写大段自我介绍文字；用户扫一眼就走","why":"大段文字没人看，跳出率高"}
-{"title":"理解错了先停下来确认","content":"AI 对概念理解有误时先停下来，等用户确认再继续；盲目推进只会越走越偏","why":"带着错误理解做下去，后面全部要返工"}后再继续操作，避免错误扩散"}
-{"title":"LLM 始终可用假设","content":"系统设计中 LLM 始终可用，不需要设计无 LLM 的降级路径"}
-{"title":"失败重试需变换策略","content":"同一方法连续失败两次后必须换策略，不能原样重试第三次"}
+{"title":"用向量检索代替正则做语义判断","content":"涉及意图、分类、路由和知识判断时，要使用 LLM 或向量检索承担语义理解；关键词和正则只能提取结构化格式，不能判断语义。","why":"用规则冒充语义理解缺乏泛化能力，曾导致分类误判和系统长时间瘫痪。","nature":"intent"}
+{"title":"修问题先堵根因再处理表面症状","content":"修复问题时先定位并堵住根因，再处理表面症状；否则同样的异常会在后续任务里反复出现。","why":"只治表面会让同一类 bug 反复返工，浪费排查和验证时间。","nature":"methodology"}
+{"title":"展示页用按钮让用户直接进入详情","content":"公开页面要让用户快速看到下一步入口，用按钮跳转详情，不用大段自我介绍占据首屏。","why":"用户扫一眼就走，大段文字会稀释行动入口并提高跳出率。","nature":"intent"}
+{"title":"理解错用户意图时先停下来确认","content":"AI 发现自己对概念或需求理解有误时，应先暂停并请用户确认，再继续拆任务或写代码。","why":"带着错误理解推进会把后续计划和实现全部带偏，最终只能整体返工。","nature":"experience"}
+{"title":"系统设计不需要无 LLM 降级路径","content":"当系统约定 LLM 始终可用时，语义理解链路不需要设计无 LLM 的规则降级路径。","why":"为不存在的无 LLM 场景设计降级，会把语义判断重新拉回关键词或规则误判。","nature":"intent"}
+{"title":"同一方法失败两次后必须换策略","content":"连续两次用同一方法失败后，要换诊断或实现策略，而不是原样重试第三次。","why":"原样重试只会消耗时间和上下文，不会带来新信息。","nature":"methodology"}
 
 ## 负例（不通过三重测试，禁止采集）
 ✖ content:"今天先派 cc 修 KIVO，codex 做 AEO" ← 一次性调度决策（时效性不通过）
@@ -213,20 +220,17 @@ ${buildBehavioralChangeTestSection()}
 ✖ content:"LLM 是大语言模型的缩写" ← 通用常识（行为变化测试不通过）
 
 ## 格式约束（强制）
-- title: 口语化一句话，≤20字，像跟同事聊天时说的话。禁止写成名词短语、AI 摘要、技术术语堆砌。好："发现问题后必须派人修"。坏："场景应用边界"。
-- content/description: 比标题多一层细节，说清楚「什么场景下、该做什么、不做会怎样」。禁止和 title 高度重复。
-- why: 独立于 content，一句话说"为什么值得记住"——踩坑代价或违反后果。禁止相同或改写复述；无法推断时填空字符串 ""。
-- similar_sentences: 2-3 条泛化相似表述，用于语义检索匹配，禁止复制原句
+- title/content/why/similar_sentences 统一遵守上方「人话意图写作标准」。
 - 没有通过三重测试的内容就返回 []
 
 ## 三维标签
-1. nature: fact / decision / methodology / experience / meta
+1. nature: fact / decision / methodology / experience / intent / meta
 2. function: constraint / preference / pattern / principle
 3. domain: 开放标签
 
 ## 输出格式
 纯 JSON 数组：
-{"content":"比标题多一层：什么场景下做什么、不做会怎样","why":"为什么值得记住；无法推断则为空字符串","title":"≤20字口语化短句","nature":"<nature>","function":"<function>","domain":"<domain>","source":"session-material","confidence":0.0-1.0,"tags":["标签"],"similar_sentences":["泛化表述1","泛化表述2"]}
+{"content":"具体场景下该做什么，不做会造成什么后果","why":"不这样做的后果、踩坑代价或失败模式；必须填写，无法可靠推断就丢弃该条","title":"提取知识时标题要像人说话一样具体","nature":"<nature>","function":"<function>","domain":"<domain>","source":"session-material","confidence":0.0-1.0,"tags":["标签"],"similar_sentences":["泛化表述1","泛化表述2"]}
 
 对话片段：
 ${combined}`;
@@ -312,6 +316,49 @@ function rowToMaterial(row: StagingMaterialRow): KnowledgeMaterial {
   };
 }
 
+async function buildIntentEmbedding(
+  embedder: EmbeddingProvider,
+  item: ReturnType<typeof normalizeAggregatedItem>,
+): Promise<number[] | null> {
+  try {
+    const text = [
+      item.title,
+      item.content,
+      item.why ?? '',
+      ...(item.similarSentences ?? []),
+    ].filter(Boolean).join('\n');
+    return await embedder.embed(text);
+  } catch {
+    return null;
+  }
+}
+
+async function persistAggregatedIntent(
+  repository: IntentRepository,
+  embedder: EmbeddingProvider,
+  item: ReturnType<typeof normalizeAggregatedItem>,
+): Promise<boolean> {
+  const firstSourceRef = Array.isArray(item.provenance.sourceRefs)
+    ? item.provenance.sourceRefs.find((sourceRef) => {
+        const candidate = sourceRef as { sessionId?: unknown };
+        return typeof candidate.sessionId === 'string' && candidate.sessionId.trim().length > 0;
+      }) as { sessionId?: string } | undefined
+    : undefined;
+
+  const embedding = await buildIntentEmbedding(embedder, item);
+  repository.upsert({
+    name: item.title,
+    description: item.content,
+    why: item.why,
+    similarSentences: item.similarSentences,
+    status: 'active',
+    confidence: item.confidence,
+    sourceSessionId: firstSourceRef?.sessionId,
+    embedding,
+  });
+  return true;
+}
+
 async function runStage2Aggregation(
   db: Database.Database,
   repository: KnowledgeRepository,
@@ -330,12 +377,23 @@ async function runStage2Aggregation(
 
   const materials = rows.map(rowToMaterial);
   const aggregation = await aggregateKnowledgeMaterials(llm, materials);
+  const intentRepository = new IntentRepository(db);
+  const intentEmbedder = createEmbeddingProvider();
   let written = 0;
   const consumedIds = new Set<string>();
 
   for (const item of aggregation.items) {
     if (!item.content || item.content.trim().length === 0) continue;
     const normalized = normalizeAggregatedItem(item);
+    if (normalized.legacyType === 'intent') {
+      const saved = await persistAggregatedIntent(intentRepository, intentEmbedder, normalized);
+      if (saved) {
+        written++;
+        for (const materialId of item.materialIds) consumedIds.add(materialId);
+      }
+      continue;
+    }
+
     const now = new Date();
     const contentHash = createHash('sha256').update(normalized.content).digest('hex');
     const entry: KnowledgeEntry = {

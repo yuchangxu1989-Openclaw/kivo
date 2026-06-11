@@ -15,6 +15,8 @@ interface IntentRow {
   id: string;
   name: string;
   description: string;
+  why: string | null;
+  similar_sentences_json: string | null;
   embedding: Buffer | string | null;
   status: string | null;
   hit_count: number | null;
@@ -48,6 +50,8 @@ export function ensureIntentSchema(db: DatabaseLike): void {
   const colNames = new Set(columns.map(c => c.name));
   if (!colNames.has('name')) db.exec(`ALTER TABLE intents ADD COLUMN name TEXT NOT NULL DEFAULT ''`);
   if (!colNames.has('description')) db.exec(`ALTER TABLE intents ADD COLUMN description TEXT NOT NULL DEFAULT ''`);
+  if (!colNames.has('why')) db.exec(`ALTER TABLE intents ADD COLUMN why TEXT`);
+  if (!colNames.has('similar_sentences_json')) db.exec(`ALTER TABLE intents ADD COLUMN similar_sentences_json TEXT NOT NULL DEFAULT '[]'`);
   if (!colNames.has('embedding')) db.exec(`ALTER TABLE intents ADD COLUMN embedding BLOB`);
   if (!colNames.has('status')) db.exec(`ALTER TABLE intents ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`);
   if (!colNames.has('hit_count')) db.exec(`ALTER TABLE intents ADD COLUMN hit_count INTEGER NOT NULL DEFAULT 0`);
@@ -67,13 +71,14 @@ export function ensureIntentSchema(db: DatabaseLike): void {
   const entryColumns = db.prepare('PRAGMA table_info(entries)').all() as Array<{ name: string }>;
   if (entryColumns.some((column) => column.name === 'type')) {
     migrateIntentEntries(db);
+    backfillIntentWhy(db);
   }
 }
 
 function migrateIntentEntries(db: DatabaseLike): void {
   db.exec(`
     INSERT INTO intents (
-      id, name, description, embedding,
+      id, name, description, why, similar_sentences_json, embedding,
       status, hit_count, last_hit_at, confidence, source_session_id, source_message_id,
       created_at, updated_at
     )
@@ -81,6 +86,8 @@ function migrateIntentEntries(db: DatabaseLike): void {
       e.id,
       COALESCE(NULLIF(e.title, ''), substr(e.content, 1, 60)),
       COALESCE(NULLIF(e.summary, ''), e.content),
+      e.why,
+      COALESCE(e.similar_sentences, '[]'),
       e.embedding,
       CASE WHEN e.status = 'active' THEN 'active' ELSE 'archived' END,
       0,
@@ -97,6 +104,19 @@ function migrateIntentEntries(db: DatabaseLike): void {
     UPDATE entries
     SET status = 'migrated_to_intents', updated_at = datetime('now')
     WHERE type = 'intent' AND status != 'migrated_to_intents';
+  `);
+}
+
+function backfillIntentWhy(db: DatabaseLike): void {
+  db.exec(`
+    UPDATE intents
+    SET why = (SELECT e.why FROM entries e WHERE e.id = intents.id AND e.why IS NOT NULL AND e.why != ''),
+        similar_sentences_json = COALESCE(
+          (SELECT e.similar_sentences FROM entries e WHERE e.id = intents.id AND e.similar_sentences IS NOT NULL),
+          similar_sentences_json
+        )
+    WHERE why IS NULL
+      AND EXISTS (SELECT 1 FROM entries e WHERE e.id = intents.id AND e.why IS NOT NULL AND e.why != '');
   `);
 }
 
@@ -138,11 +158,23 @@ function cosineSimilarity(a: number[], b: ArrayLike<number>): number {
   return denom === 0 ? 0 : dot / denom;
 }
 
+function parseJsonArray(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 function rowToIntent(row: IntentRow): IntentRecord {
   return {
     id: row.id,
     name: row.name,
     description: row.description,
+    why: row.why ?? undefined,
+    similarSentences: parseJsonArray(row.similar_sentences_json),
     positives: [],
     negatives: [],
     status: row.status === 'archived' ? 'archived' : 'active',
@@ -195,12 +227,14 @@ export class IntentRepository {
     if (existing) {
       this.db.prepare(`
         UPDATE intents
-        SET name = ?, description = ?, status = ?, confidence = ?,
+        SET name = ?, description = ?, why = ?, similar_sentences_json = ?, status = ?, confidence = ?,
             source_session_id = ?, source_message_id = ?, embedding = COALESCE(?, embedding), updated_at = ?
         WHERE id = ?
       `).run(
         input.name,
         input.description,
+        input.why ?? existing.why ?? null,
+        JSON.stringify(input.similarSentences ?? existing.similarSentences ?? []),
         input.status ?? existing.status,
         input.confidence ?? existing.confidence,
         input.sourceSessionId ?? existing.sourceSessionId ?? null,
@@ -213,12 +247,14 @@ export class IntentRepository {
     }
 
     this.db.prepare(`
-      INSERT INTO intents (id, name, description, embedding, status, confidence, source_session_id, source_message_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO intents (id, name, description, why, similar_sentences_json, embedding, status, confidence, source_session_id, source_message_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.name,
       input.description,
+      input.why ?? null,
+      JSON.stringify(input.similarSentences ?? []),
       embedding,
       input.status ?? 'active',
       input.confidence ?? 1,

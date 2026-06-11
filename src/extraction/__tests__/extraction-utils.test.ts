@@ -43,11 +43,11 @@ describe('extraction-utils', () => {
   });
 
   describe('generateTitle', () => {
-    it('shortens long content to <= 20 chars without ellipsis fallback', () => {
+    it('shortens long content to <= 25 chars without ellipsis fallback', () => {
       const long = 'A'.repeat(100);
       const title = generateTitle(long);
-      expect(title).toBe('AAAAAAAAAAAAAAAAAAAA');
-      expect(title.length).toBeLessThanOrEqual(20);
+      expect(title).toBe('AAAAAAAAAAAAAAAAAAAAAAAAA');
+      expect(title.length).toBeLessThanOrEqual(25);
       expect(title).not.toContain('...');
     });
 
@@ -62,16 +62,16 @@ describe('extraction-utils', () => {
       expect(shortenKnowledgeTitle('这是标题，后面是展开说明的内容比较长而且超过了二十个字符的限制所以需要被截断处理掉多余部分')).toBe('这是标题');
     });
 
-    it('falls back to a <=20 char semantic boundary without ellipsis when no punctuation exists', () => {
+    it('falls back to a <=25 char semantic boundary without ellipsis when no punctuation exists', () => {
       const title = shortenKnowledgeTitle('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890');
-      expect(title).toBe('ABCDEFGHIJKLMNOPQRST');
-      expect(title.length).toBeLessThanOrEqual(20);
+      expect(title).toBe('ABCDEFGHIJKLMNOPQRSTUVWXY');
+      expect(title.length).toBeLessThanOrEqual(25);
       expect(title).not.toContain('...');
     });
 
     it('avoids ending generated titles with incomplete connector words', () => {
       const title = shortenKnowledgeTitle('语义理解判断应该由LLM完成避免规则引擎误判');
-      expect(title.length).toBeLessThanOrEqual(20);
+      expect(title.length).toBeLessThanOrEqual(25);
       expect(title.endsWith('由')).toBe(false);
     });
 

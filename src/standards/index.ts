@@ -8,5 +8,7 @@ export {
   BEHAVIORAL_CHANGE_NEGATIVE_EXAMPLES,
   buildKnowledgeAdmissionBoundarySection,
   buildBehavioralChangeTestSection,
+  HUMAN_READABLE_INTENT_STYLE_PROMPT,
+  buildHumanReadableIntentStyleSection,
   GOVERNANCE_BEHAVIORAL_TEST_PROMPT,
 } from './admission-criteria.js';

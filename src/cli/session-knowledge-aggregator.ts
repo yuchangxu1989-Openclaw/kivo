@@ -2,7 +2,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { KnowledgeFunction, KnowledgeNature, KnowledgeType } from '../types/index.js';
 import { OpenAILLMProvider } from '../extraction/llm-extractor.js';
 import { shortenKnowledgeTitle } from '../extraction/extraction-utils.js';
-import { buildBehavioralChangeTestSection, buildKnowledgeAdmissionBoundarySection } from '../standards/index.js';
+import {
+  buildBehavioralChangeTestSection,
+  buildHumanReadableIntentStyleSection,
+  buildKnowledgeAdmissionBoundarySection,
+} from '../standards/index.js';
 import { parseLlmResponse, validateFunction, validateNature, NATURE_TO_TYPE, type ExtractedItem } from './session-knowledge-llm.js';
 
 export interface KnowledgeMaterial {
@@ -70,26 +74,22 @@ ${buildBehavioralChangeTestSection()}
 3. 一次性决策、临时调度、排查过程、任务派发、阶段性状态，不能直接产出知识。
 4. 如果素材只能证明「当时发生过什么」，不能证明「以后应如何理解或行动」，返回 []。
 5. 每条产出必须同时通过三个问题：三个月后还有效吗？换项目/换任务还适用吗？去掉时间、人名、项目名后仍有指导价值吗？
-6. title 必须是口语化一句话（≤20字），像跟同事聊天说"你知道吗，XXX"。禁止写成名词短语或 AI 摘要，禁止用 Agent/pipeline/hook 等技术术语做主语。好："发现问题后必须派人修"。坏："场景应用边界"。
-7. content/description 必须比标题多一层细节，用一两句话说清楚「什么场景下、该做什么、不做会怎样」。禁止和 title 高度重复。
-8. why 必须独立于 content，一句话说"为什么值得记住"——踩坑代价或违反后果。why 禁止复制 content/description/summary/title，也不能只是改写复述；无法从素材可靠推断时返回空字符串 ""。
-9. similar_sentences 必须生成 2-3 条泛化相似表述，用于后续语义检索匹配；可参考输入素材里的相似表述，但不能照搬原文。
-10. 允许一批素材产出 0 条。宁缺毋滥。
-11. 每条知识必须回答：它让 agent 在什么场景下避免什么错误。
+6. 如果主题表达用户偏好、行为模式、意图映射或研发流程期望，nature 输出 "intent"，让它进入独立意图库。
+7. 允许一批素材产出 0 条。宁缺毋滥。
+8. 每条知识必须回答：它让 agent 在什么场景下避免什么错误。
+
+${buildHumanReadableIntentStyleSection()}
 
 ## 输出约束
-- title：口语化一句话，≤20字，像跟同事聊天时说的话。禁止名词短语、AI 摘要风格。
-- content/description：比标题多一层细节，说清楚场景+做法+不做会怎样。禁止和 title 高度重复。
-- why：独立于 content，一句话说踩坑代价或违反后果。禁止相同或改写复述；无法推断时填空字符串 ""。
-- similar_sentences：2-3 条泛化相似表述，用于语义检索匹配。
+- title/content/why/similar_sentences 统一遵守上方「人话意图写作标准」。
 - 禁止写「用户说」「这次」「当前」「刚才」「今天」「已完成」「正在」等对话过程词。
-- nature：fact / concept / rule / procedure / heuristic。
-- function：routing / quality_gate / context_enrichment / decision_support / correction。
+- nature：fact / decision / methodology / experience / intent / meta。
+- function：constraint / preference / pattern / principle。
 - domain：开放标签。
 - materialIds：使用输入素材序号，如 [1,2]。
 
 返回纯 JSON 数组：
-[{"title":"≤20字口语化短句","content":"比标题多一层：什么场景下做什么、不做会怎样","why":"为什么值得记住；无法推断则为空字符串","nature":"rule","function":"quality_gate","domain":"","source":"session-aggregate","confidence":0.0,"tags":[""],"similar_sentences":["泛化表述1","泛化表述2"],"materialIds":[1,2]}]
+[{"title":"提取知识时标题要像人说话一样具体","content":"具体场景下该做什么，不做会造成什么后果","why":"不这样做的后果、踩坑代价或失败模式；必须填写，无法可靠推断就丢弃该条","nature":"intent","function":"principle","domain":"","source":"session-aggregate","confidence":0.0,"tags":[""],"similar_sentences":["泛化表述1","泛化表述2"],"materialIds":[1,2]}]
 
 输入素材：
 ${materialList}`;

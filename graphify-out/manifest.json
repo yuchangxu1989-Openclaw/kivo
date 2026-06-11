@@ -156,8 +156,8 @@
     "hash": "2598dd8c882e2e957c973f41110d751b"
   },
   "/root/.openclaw/workspace/projects/kivo/src/cli/extract-memory.ts": {
-    "mtime": 1780871276.9750288,
-    "hash": "187e37e394eb5d919ceef5dc3730a342"
+    "mtime": 1781153869.8312411,
+    "hash": "3c61916ec0e0657f0d34a6d49a1f0d14"
   },
   "/root/.openclaw/workspace/projects/kivo/src/cli/resolve-llm-config.ts": {
     "mtime": 1780536480.6408446,
@@ -244,8 +244,8 @@
     "hash": "aaa2319095d2076518669459bc7c0360"
   },
   "/root/.openclaw/workspace/projects/kivo/src/cli/__tests__/session-why.test.ts": {
-    "mtime": 1781007261.186819,
-    "hash": "cfefbfa236a21a55658b42584fe049a6"
+    "mtime": 1781153869.8312411,
+    "hash": "351782ba7f293bacddb52e3167c9194f"
   },
   "/root/.openclaw/workspace/projects/kivo/src/cli/__tests__/governance.test.ts": {
     "mtime": 1777802738.190073,
@@ -1384,12 +1384,12 @@
     "hash": "557475bfe1fa43f52c376b70ad0b97df"
   },
   "/root/.openclaw/workspace/projects/kivo/src/repository/intent-types.ts": {
-    "mtime": 1779713670.75129,
-    "hash": "e1a759aa8f392c022548a2bef8ce6961"
+    "mtime": 1781153869.8322413,
+    "hash": "aa013c1c3fc21a86ecf80b5e94dde012"
   },
   "/root/.openclaw/workspace/projects/kivo/src/repository/intent-repository.ts": {
-    "mtime": 1780968209.2370362,
-    "hash": "ef2c5e84febd7d55e222fc7c1d3f8d39"
+    "mtime": 1781153869.8322413,
+    "hash": "ede524580feafc2d9d5823aa5c60f3f8"
   },
   "/root/.openclaw/workspace/projects/kivo/src/repository/json-exporter.ts": {
     "mtime": 1776915406.082846,
@@ -1828,8 +1828,8 @@
     "hash": "8640f9b2e6475cc3f5b1ff4548925765"
   },
   "/root/.openclaw/workspace/projects/kivo/web/middleware.ts": {
-    "mtime": 1781010174.3407924,
-    "hash": "9ff1576c433a0f7dcddea00b271bc3c1"
+    "mtime": 1781090281.6437678,
+    "hash": "66ed09335c0f8f72f0286f56f044f7a6"
   },
   "/root/.openclaw/workspace/projects/kivo/web/__tests__/ui-wave1-components.test.tsx": {
     "mtime": 1779586717.454024,
@@ -2204,7 +2204,7 @@
     "hash": "385841a601d2232c3966d76acdacf4d3"
   },
   "/root/.openclaw/workspace/projects/kivo/web/public/pdf.worker.min.mjs": {
-    "mtime": 1781011978.8275537,
+    "mtime": 1781154687.8577032,
     "hash": "1b3bec25faa882380aa81a1353c7734c"
   },
   "/root/.openclaw/workspace/projects/kivo/web/contexts/cognitive-mode-context.tsx": {
@@ -2256,8 +2256,8 @@
     "hash": "c96528d41a9d2904623d2ab79e8f8cc5"
   },
   "/root/.openclaw/workspace/projects/kivo/web/lib/research-db.ts": {
-    "mtime": 1781005249.585657,
-    "hash": "d622dd7bb8e647d52dbb6bccbdadced8"
+    "mtime": 1781154336.0499136,
+    "hash": "e9831e1e37480893c624b5a9c80ca1da"
   },
   "/root/.openclaw/workspace/projects/kivo/web/lib/demo-dashboard-data.ts": {
     "mtime": 1780964338.8713987,
@@ -2364,8 +2364,8 @@
     "hash": "cffcbf7d22781b446bb79600b84b3899"
   },
   "/root/.openclaw/workspace/projects/kivo/web/lib/intent-store.ts": {
-    "mtime": 1781006560.3462777,
-    "hash": "4fbf9f6a36eecf89262b27e361812aa1"
+    "mtime": 1781154679.9975739,
+    "hash": "e2b1a72700b72a45b9e1ca587431442f"
   },
   "/root/.openclaw/workspace/projects/kivo/web/lib/wiki-annotations.ts": {
     "mtime": 1779794896.5078368,
@@ -2736,20 +2736,20 @@
     "hash": "5af35097c64cf09f0509fe29b071b6cc"
   },
   "/root/.openclaw/workspace/projects/kivo/web/app/api/v1/research/route.ts": {
-    "mtime": 1781005210.8850183,
-    "hash": "c65d62e634184d5ed5840d152c95366c"
+    "mtime": 1781090281.642768,
+    "hash": "ef857db4c5bffb869680227727a916ed"
   },
   "/root/.openclaw/workspace/projects/kivo/web/app/api/v1/research/reports/[reportId]/reference/route.ts": {
     "mtime": 1780797201.0647616,
     "hash": "b8116aa2b5c85a06db9d2f5f1e78bedb"
   },
   "/root/.openclaw/workspace/projects/kivo/web/app/api/v1/research/[id]/route.ts": {
-    "mtime": 1781005158.5571551,
-    "hash": "332b85716656625fe808685b0da0db65"
+    "mtime": 1781090281.6407678,
+    "hash": "ad56cad6a32c17153cb9e357f783f4aa"
   },
   "/root/.openclaw/workspace/projects/kivo/web/app/api/v1/research/[id]/adopt/route.ts": {
-    "mtime": 1781005218.8381495,
-    "hash": "f3d9f35981abd436d3ca738134b7426c"
+    "mtime": 1781090281.6407678,
+    "hash": "7317e8fb1a598fd66a5f2688c357fc57"
   },
   "/root/.openclaw/workspace/projects/kivo/web/app/api/v1/research/queue/route.ts": {
     "mtime": 1779630890.6722114,
@@ -3004,8 +3004,8 @@
     "hash": "62a7bef8fe962a4facf762b056d84a82"
   },
   "/root/.openclaw/workspace/projects/kivo/web/app/(dashboard)/wiki/page.tsx": {
-    "mtime": 1781011817.6218948,
-    "hash": "3f1bedd307a789269c000c111e74b64e"
+    "mtime": 1781012206.8873162,
+    "hash": "9c15c617484b2f50f35418559017ca6e"
   },
   "/root/.openclaw/workspace/projects/kivo/web/app/(dashboard)/wiki/materials/page.tsx": {
     "mtime": 1779814682.934861,
@@ -3032,8 +3032,8 @@
     "hash": "068e3162c1fdf55bb0cffb6818ac69ba"
   },
   "/root/.openclaw/workspace/projects/kivo/web/app/(dashboard)/research/page.tsx": {
-    "mtime": 1780799446.5177398,
-    "hash": "34ebb4a50c8055959586e6c2827e160e"
+    "mtime": 1781154341.8910098,
+    "hash": "d893c13690d9743e5e7d997dc3ed05e6"
   },
   "/root/.openclaw/workspace/projects/kivo/web/app/(dashboard)/system/operation-log/page.tsx": {
     "mtime": 1779614347.0403912,

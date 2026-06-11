@@ -64,7 +64,7 @@ function visibleEntries(report: ResearchReport): ResearchWikiEntryLink[] {
 
 function normalizeTopics(data: ResearchDashboardData | undefined): ResearchTopic[] {
   if (!data) return [];
-  if (Array.isArray(data.topics)) return data.topics;
+  if (Array.isArray(data.topics) && data.topics.length > 0) return data.topics;
 
   const byTopic = new Map<string, ResearchTopic>();
   for (const legacy of data.tasks ?? []) {

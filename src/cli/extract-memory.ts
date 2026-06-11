@@ -411,7 +411,8 @@ export async function extractMemoryKnowledge(
           id,
           type: legacyType,
           title: shortenKnowledgeTitle(item.title, item.content),
-          content: item.content.slice(0, 50),
+          content: item.content,
+          why: item.why?.trim() || undefined,
           summary: item.content.slice(0, 120),
           source: {
             type: 'document',
@@ -433,6 +434,7 @@ export async function extractMemoryKnowledge(
               contentHash,
               sourceType: 'memory',
               sourceFile: basename(sourceFile),
+              ...(item.why?.trim() ? { why: item.why.trim() } : {}),
               ...(itemEmbedding ? { embeddingVector: itemEmbedding, embeddingModel: 'bge-small-zh-v1.5' } : {}),
             },
           },

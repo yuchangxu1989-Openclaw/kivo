@@ -405,7 +405,7 @@ Examples:
       break;
     }
     case 'extract-sessions': {
-      const esOpts = parseFlags(['limit', 'since', 'candidates', 'source'], ['dry-run', 'help', 'no-quality-gate']);
+      const esOpts = parseFlags(['limit', 'since', 'candidates', 'source'], ['dry-run', 'help', 'no-quality-gate', 'full', 'force']);
       if (esOpts.help || process.argv.includes('--help') || process.argv.includes('-h')) {
         console.log(`kivo extract-sessions - Extract knowledge from session history (FR-A05)
 
@@ -418,10 +418,12 @@ Options:
   --dry-run          Preview without writing to DB
   --limit N          Process only first N clusters/chunks
   --since DATE       Only process sessions after this date (sessions source only)
+  --full, --force    Force a full session extraction and ignore the checkpoint
   --help             Show this help message
   --no-quality-gate  Bypass FR-N05 intake quality gate
 
 Examples:
+  kivo extract-sessions --full
   kivo extract-sessions --since 2026-01-01
   kivo extract-sessions --source memory --dry-run
   kivo extract-sessions --source all
@@ -432,10 +434,11 @@ Examples:
       const { runExtractSessions } = await import('./extract-sessions.js');
       const esOutput = await runExtractSessions({
         dryRun: !!esOpts['dry-run'],
-        limit: esOpts.limit ? parseInt(String(esOpts.limit), 10) : undefined,
+        limit: typeof esOpts.limit === 'string' ? parseInt(esOpts.limit, 10) : undefined,
         since: typeof esOpts.since === 'string' ? esOpts.since : undefined,
         candidates: typeof esOpts.candidates === 'string' ? esOpts.candidates : undefined,
         noQualityGate: !!esOpts['no-quality-gate'],
+        full: !!esOpts.full || !!esOpts.force,
         source: (typeof esOpts.source === 'string' ? esOpts.source : 'sessions') as 'sessions' | 'memory' | 'all',
       });
       console.log(esOutput);

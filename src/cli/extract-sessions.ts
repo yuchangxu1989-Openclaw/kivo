@@ -7,17 +7,13 @@
  * 3. Write to KIVO DB
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { execSync } from 'node:child_process';
-import { randomUUID, createHash } from 'node:crypto';
+import Database from 'better-sqlite3';
 import { extractSessionKnowledge } from './session-knowledge-llm.js';
 import type { SessionExtractResult } from './session-knowledge-llm.js';
-import Database from 'better-sqlite3';
 import { DEFAULT_CONFIG } from '../config/types.js';
-import { KnowledgeRepository, SQLiteProvider } from '../repository/index.js';
-import type { KnowledgeEntry, KnowledgeType, KnowledgeNature, KnowledgeFunction } from '../types/index.js';
-import { shortenKnowledgeTitle } from '../extraction/extraction-utils.js';
 
 export type ExtractSource = 'sessions' | 'memory' | 'all';
 
@@ -43,6 +39,97 @@ export interface ExtractSessionsOptions {
   candidates?: string;
   noQualityGate?: boolean;
   source?: ExtractSource;
+  full?: boolean;
+}
+
+export const EXTRACTION_CHECKPOINT_KEY = 'extract_sessions_checkpoint';
+
+export interface ExtractionCheckpoint {
+  lastExtractedAt: string;
+}
+
+interface CandidatesMetadata {
+  total_messages?: number;
+  total_segments?: number;
+  after_filter?: number;
+  generated_at?: string;
+  total_clusters?: number;
+}
+
+function resolveDbPath(dir: string): string {
+  const configPath = join(dir, 'kivo.config.json');
+  let dbPath = process.env.KIVO_DB_PATH ?? String(DEFAULT_CONFIG.dbPath);
+  if (!process.env.KIVO_DB_PATH && existsSync(configPath)) {
+    const cfg = JSON.parse(readFileSync(configPath, 'utf-8'));
+    if (typeof cfg.dbPath === 'string') dbPath = cfg.dbPath;
+  }
+  return resolve(dir, dbPath);
+}
+
+function ensureMetaTable(db: Database.Database): void {
+  db.exec(`CREATE TABLE IF NOT EXISTS kivo_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+}
+
+export function readExtractionCheckpoint(dbPath: string): ExtractionCheckpoint | undefined {
+  if (!existsSync(dbPath)) return undefined;
+  const db = new Database(dbPath);
+  try {
+    ensureMetaTable(db);
+    const row = db.prepare('SELECT value FROM kivo_meta WHERE key = ?').get(EXTRACTION_CHECKPOINT_KEY) as { value: string } | undefined;
+    if (!row) return undefined;
+    const parsed = JSON.parse(row.value) as Partial<ExtractionCheckpoint>;
+    return typeof parsed.lastExtractedAt === 'string' ? { lastExtractedAt: parsed.lastExtractedAt } : undefined;
+  } finally {
+    db.close();
+  }
+}
+
+export function writeExtractionCheckpoint(dbPath: string, checkpoint: ExtractionCheckpoint): void {
+  const db = new Database(dbPath);
+  try {
+    ensureMetaTable(db);
+    db.prepare("INSERT OR REPLACE INTO kivo_meta (key, value, updated_at) VALUES (?, ?, datetime('now'))")
+      .run(EXTRACTION_CHECKPOINT_KEY, JSON.stringify(checkpoint));
+  } finally {
+    db.close();
+  }
+}
+
+function readCandidatesMetadata(candidatesPath: string): CandidatesMetadata {
+  const raw = readFileSync(candidatesPath, 'utf-8');
+  const parsed = JSON.parse(raw) as { metadata?: CandidatesMetadata };
+  return parsed.metadata ?? {};
+}
+
+export function hasCandidateWork(candidatesPath: string): boolean {
+  return (readCandidatesMetadata(candidatesPath).total_clusters ?? 0) > 0;
+}
+
+export function latestCandidateTimestamp(candidatesPath: string): string | undefined {
+  const raw = readFileSync(candidatesPath, 'utf-8');
+  const parsed = JSON.parse(raw) as {
+    clusters?: Array<{ representative_segments?: Array<{ timestamp?: unknown }> }>;
+  };
+  let latest: string | undefined;
+  for (const cluster of parsed.clusters ?? []) {
+    for (const segment of cluster.representative_segments ?? []) {
+      if (typeof segment.timestamp === 'string' && (!latest || segment.timestamp > latest)) {
+        latest = segment.timestamp;
+      }
+    }
+  }
+  return latest;
+}
+export function shouldPersistExtractionCheckpoint(options: ExtractSessionsOptions, result: SessionExtractResult): boolean {
+  if (options.dryRun) return false;
+  if (options.candidates) return false;
+  if (options.since) return false;
+  if (options.limit !== undefined) return false;
+  return result.errors.length === 0;
 }
 
 /**
@@ -144,7 +231,7 @@ function formatResult(result: SessionExtractResult, dryRun: boolean): string {
 }
 
 export async function runExtractSessions(options: ExtractSessionsOptions = {}): Promise<string> {
-  const { dryRun = false, limit, since, candidates, noQualityGate = false, source = 'sessions' } = options;
+  const { dryRun = false, limit, since, candidates, noQualityGate = false, source = 'sessions', full = false } = options;
 
   // Handle --source memory or --source all
   if (source === 'memory' || source === 'all') {
@@ -153,7 +240,7 @@ export async function runExtractSessions(options: ExtractSessionsOptions = {}): 
 
     if (source === 'all') {
       // Run sessions extraction first
-      const sessionsOutput = await runExtractSessionsOnly({ dryRun, limit, since, candidates, noQualityGate });
+      const sessionsOutput = await runExtractSessionsOnly({ dryRun, limit, since, candidates, noQualityGate, full });
       outputs.push(sessionsOutput);
       outputs.push('');
     }
@@ -170,7 +257,7 @@ export async function runExtractSessions(options: ExtractSessionsOptions = {}): 
 }
 
 async function runExtractSessionsOnly(options: ExtractSessionsOptions = {}): Promise<string> {
-  const { dryRun = false, limit, since, candidates, noQualityGate = false } = options;
+  const { dryRun = false, limit, since, candidates, noQualityGate = false, full = false } = options;
 
   // Check preprocessor script existence BEFORE expensive BGE check (avoids loading PyTorch for nothing)
   if (!candidates) {
@@ -192,6 +279,13 @@ async function runExtractSessionsOnly(options: ExtractSessionsOptions = {}): Pro
     }
   }
 
+  const dir = process.cwd();
+  const dbPath = resolveDbPath(dir);
+  const checkpoint = !full && !since && !candidates ? readExtractionCheckpoint(dbPath) : undefined;
+  if (checkpoint) {
+    console.log(`Incremental extraction: only messages after ${checkpoint.lastExtractedAt}`);
+  }
+
   let candidatesPath: string;
 
   if (candidates) {
@@ -202,38 +296,13 @@ async function runExtractSessionsOnly(options: ExtractSessionsOptions = {}): Pro
     }
     console.log(`Using provided candidates: ${candidatesPath}`);
   } else {
-    // Query last processed_at from DB to pass as --since-timestamp
-    let sinceTimestamp: string | undefined;
-    if (!candidates) {
-      try {
-        const dir = process.cwd();
-        const configPath = join(dir, 'kivo.config.json');
-        let dbPath = String(DEFAULT_CONFIG.dbPath);
-        if (existsSync(configPath)) {
-          const { readFileSync } = await import('node:fs');
-          const cfg = JSON.parse(readFileSync(configPath, 'utf-8'));
-          if (typeof cfg.dbPath === 'string') dbPath = cfg.dbPath;
-        }
-        const resolvedDb = resolve(dir, dbPath);
-        if (existsSync(resolvedDb)) {
-          const db = new Database(resolvedDb);
-          const row = db.prepare('SELECT MAX(processed_at) as last_ts FROM processed_sessions').get() as { last_ts: string | null } | undefined;
-          if (row?.last_ts) {
-            sinceTimestamp = row.last_ts;
-            console.log(`Incremental extraction: only messages after ${sinceTimestamp}`);
-          }
-          db.close();
-        }
-      } catch {
-        // Non-fatal: if we can't read DB, just process everything
-      }
-    }
-
-    // Run Python preprocessor
     try {
-      candidatesPath = runPythonPreprocessor(since, sinceTimestamp);
+      candidatesPath = runPythonPreprocessor(since, checkpoint?.lastExtractedAt);
     } catch (err) {
       return `Failed to run preprocessor: ${err instanceof Error ? err.message : String(err)}`;
+    }
+    if (checkpoint && !hasCandidateWork(candidatesPath)) {
+      return `No new session content after ${checkpoint.lastExtractedAt}. Use --full to reprocess all sessions.`;
     }
   }
 
@@ -245,6 +314,15 @@ async function runExtractSessionsOnly(options: ExtractSessionsOptions = {}): Pro
       since,
       noQualityGate,
     });
+    // Only advance the persistent checkpoint for unbounded session runs.
+    // Partial/manual runs (--limit/--since/--candidates/dry-run) must not move it,
+    // otherwise default incremental extraction can skip unseen content later.
+    const latestTimestamp = shouldPersistExtractionCheckpoint(options, result)
+      ? latestCandidateTimestamp(candidatesPath)
+      : undefined;
+    if (latestTimestamp) {
+      writeExtractionCheckpoint(dbPath, { lastExtractedAt: latestTimestamp });
+    }
     return formatResult(result, dryRun);
   } catch (err) {
     return `Extraction failed: ${err instanceof Error ? err.message : String(err)}`;

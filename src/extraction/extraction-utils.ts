@@ -21,7 +21,7 @@ const KNOWLEDGE_TYPES: KnowledgeType[] = [
   'meta',
 ];
 
-const TITLE_MAX_LENGTH = 20;
+const TITLE_MAX_LENGTH = 25;
 const TITLE_PUNCTUATION = /[。．.!！?？,，:：;；]/u;
 const TITLE_CONNECTOR = /[，,、；;：:\-—–\s]+/u;
 const TITLE_ENDS_INCOMPLETE = /[的和与及或在对把被将为以因从向到于了着过更最很但而且并就则若如当需须要应能可会]$/u;
