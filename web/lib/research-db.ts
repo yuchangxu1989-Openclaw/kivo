@@ -11,8 +11,6 @@ import type { Priority, ResearchDashboardData, ResearchStatus, ResearchTask } fr
 import type { KnowledgeEntry } from '@self-evolving-harness/kivo';
 import { persistEntry } from './kivo-engine';
 
-export type { ResearchDashboardData } from './domain-types';
-
 const DEFAULT_EXPECTED_TYPES = ['fact', 'decision', 'methodology'];
 const RESEARCH_AUTO_PAUSED_KEY = 'research:auto_paused';
 const VALID_STATUSES = new Set(['pending', 'queued', 'executing', 'running', 'completed', 'failed', 'cancelled']);
@@ -306,7 +304,6 @@ export function getResearchDashboardData(): ResearchDashboardData {
   return {
     autoResearchPaused: getAutoResearchPaused(),
     tasks: selectResearchRows().map(mapResearchRow),
-    topics: [],
   };
 }
 
@@ -736,151 +733,4 @@ export function updateResearchTaskStatusForTest(id: string, status: string, repo
   } finally {
     db.close();
   }
-}
-
-export interface RegisterResearchTaskInput {
-  topicName: string;
-  taskTitle: string;
-  query?: string;
-  sourceType?: string;
-  sourceRef?: string;
-  actorId?: string;
-  executorId?: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface RegisterResearchReportInput {
-  taskId: string;
-  reportUri: string;
-  title?: string;
-  reportKind?: string;
-  externalContentHash?: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface UpdateRegisteredResearchTaskStatusInput {
-  taskId: string;
-  status: 'running' | 'completed' | 'failed' | 'cancelled';
-  reason?: string;
-  reportUri?: string;
-  reportTitle?: string;
-  executorId?: string;
-}
-
-export function registerResearchTask(input: RegisterResearchTaskInput): ResearchDashboardData {
-  ensureResearchTables();
-  const id = randomUUID();
-  const now = Date.now();
-  const query = (input.query ?? input.taskTitle).trim();
-  const requestedBy = (input.actorId ?? input.executorId ?? input.sourceType ?? 'internal').trim() || 'internal';
-  const metadata = {
-    sourceType: input.sourceType,
-    sourceRef: input.sourceRef,
-    executorId: input.executorId,
-    metadata: input.metadata,
-  };
-
-  const db = openWebDb(false);
-  try {
-    db.prepare(`
-      INSERT INTO research_tasks (
-        id, query, requested_by, title, description, scope, priority, budget_credits, expected_types_json,
-        status, created_at, updated_at, highlighted, report_path, result_path, produced_entry_ids_json
-      ) VALUES (?, ?, ?, ?, ?, ?, 'medium', ?, ?, 'pending', ?, ?, 0, NULL, NULL, '[]')
-    `).run(
-      id,
-      query,
-      requestedBy,
-      input.taskTitle,
-      JSON.stringify(metadata),
-      input.topicName,
-      inferBudgetCredits('medium'),
-      JSON.stringify(DEFAULT_EXPECTED_TYPES),
-      now,
-      now,
-    );
-  } finally {
-    db.close();
-  }
-
-  appendActivityEvent({ type: 'research_created', label: '内部调研任务', summary: `已登记调研任务「${input.taskTitle}」。`, href: '/research', tags: ['research', 'internal'] });
-  return getResearchDashboardData();
-}
-
-export function registerResearchReport(input: RegisterResearchReportInput): ResearchDashboardData | null {
-  ensureResearchTables();
-  const now = Date.now();
-  const db = openWebDb(false);
-  try {
-    const changes = db.prepare(`
-      UPDATE research_tasks
-      SET report_path = ?, result_path = ?, title = COALESCE(?, title), updated_at = ?,
-          completed_at = CASE WHEN status = 'completed' THEN COALESCE(completed_at, ?) ELSE completed_at END
-      WHERE id = ?
-    `).run(input.reportUri, input.reportUri, input.title ?? null, now, now, input.taskId).changes;
-    if (changes === 0) return null;
-  } finally {
-    db.close();
-  }
-
-  appendActivityEvent({ type: 'research_updated', label: '调研报告登记', summary: `调研任务「${input.taskId}」已登记报告。`, href: '/research', tags: ['research', 'report'] });
-  return getResearchDashboardData();
-}
-
-export function updateRegisteredResearchTaskStatus(input: UpdateRegisteredResearchTaskStatusInput): ResearchDashboardData | null {
-  ensureResearchTables();
-  const now = Date.now();
-  const normalized = dbStatusForUi(input.status);
-  const db = openWebDb(false);
-  try {
-    const changes = db.prepare(`
-      UPDATE research_tasks
-      SET status = ?, updated_at = ?,
-          started_at = CASE WHEN ? = 'executing' THEN COALESCE(started_at, ?) ELSE started_at END,
-          completed_at = CASE WHEN ? IN ('completed', 'failed', 'cancelled') THEN COALESCE(completed_at, ?) ELSE completed_at END,
-          failure_reason = CASE WHEN ? IN ('failed', 'cancelled') THEN ? ELSE NULL END,
-          report_path = COALESCE(?, report_path),
-          result_path = COALESCE(?, result_path),
-          title = COALESCE(?, title)
-      WHERE id = ?
-    `).run(
-      normalized,
-      now,
-      normalized,
-      now,
-      normalized,
-      now,
-      normalized,
-      input.reason ?? null,
-      input.reportUri ?? null,
-      input.reportUri ?? null,
-      input.reportTitle ?? null,
-      input.taskId,
-    ).changes;
-    if (changes === 0) return null;
-  } finally {
-    db.close();
-  }
-
-  appendActivityEvent({ type: 'research_updated', label: '调研状态更新', summary: `调研任务「${input.taskId}」状态已更新为「${input.status}」。`, href: '/research', tags: ['research', input.status] });
-  return getResearchDashboardData();
-}
-
-export async function confirmResearchReportReference(input: { reportId: string; confirmedBy: string }): Promise<ResearchDashboardData | null> {
-  ensureResearchTables();
-  const taskId = input.reportId.endsWith('-report') ? input.reportId.slice(0, -'-report'.length) : input.reportId;
-  const db = openWebDb(false);
-  try {
-    const changes = db.prepare(`
-      UPDATE research_tasks
-      SET updated_at = ?, highlighted = 1, requested_by = COALESCE(NULLIF(requested_by, ''), ?)
-      WHERE id = ? AND status = 'completed'
-    `).run(Date.now(), input.confirmedBy, taskId).changes;
-    if (changes === 0) return null;
-  } finally {
-    db.close();
-  }
-
-  appendActivityEvent({ type: 'research_updated', label: '调研引用确认', summary: `调研报告「${input.reportId}」已确认引用。`, href: '/research', tags: ['research', 'reference'] });
-  return getResearchDashboardData();
 }
