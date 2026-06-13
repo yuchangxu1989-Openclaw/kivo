@@ -86,7 +86,13 @@ export class OpenAILLMProvider implements LLMProvider {
 
       if (!response.ok) {
         const text = await response.text().catch(() => '');
-        throw new Error(`OpenAI API error ${response.status}: ${text}`);
+        throw new Error(`OpenAI API error ${response.status}: ${text.slice(0, 200)}`);
+      }
+
+      const contentType = response.headers.get('content-type') ?? '';
+      if (!contentType.includes('json')) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`LLM endpoint returned non-JSON (content-type: ${contentType}): ${text.slice(0, 100)}`);
       }
 
       const data = await response.json() as {
@@ -133,7 +139,9 @@ const SYSTEM_PROMPT = `你是一个知识提取引擎。你的任务是从给定
 3. 抽象性：去掉时间、人名、项目名后仍是理解模型吗？
 
 ### 第四步：抽象归纳（写人话，不写 AI 腔）
-- title（≤30字）：用口语化的一句话概括这条经验，像在茶歇时跟同事说"你知道吗，XXX"。禁止用 Agent/pipeline/hook/guard/harness 等技术术语做主语；禁止照搬原文。好标题："发现问题后必须自动派人修，不能光分析不动手"、"改配置前先确认谁在用"。坏标题："扫描发现失败项必须自动派发编码Agent实施修复"（机械化总结，不是人话）。
+- title（≤30字）：口语化、可理解的人话标题，像跟同事解释时会自然说出的一句话，不是学术摘要、标签名或压缩后的分类名。标题要包含具体动作和对象，让人一眼知道要采取什么行动、避免什么错误或记住什么边界。
+- 禁止 2-6 字抽象名词短语、四字成语式标题和 AI 摘要腔；避免「策略」「原则」「机制」「规范」「优化」「对齐」「治理」「框架」等抽象名词堆砌，除非标题里同时有明确动作和对象。
+- 如果初稿像「语义禁用规则」「知识对齐策略」「领域知识库通用化」这种抽象短标题，必须改写成一句人会说的话，例如「禁止用正则做语义判断」「知识库内容要跟 spec 保持一致」「知识库不要绑死在单一领域」。
 - content（description）：比标题多一层细节，用一两句话说清楚「什么场景下、该做什么、不做会怎样」。禁止和 title 高度重复——不能只是标题换个说法再说一遍，必须补充标题没覆盖到的信息。
 - why：独立于 content，一句话说"为什么值得记住这个"——通常是踩过坑的代价或违反后的后果。禁止复制 content/summary/title；无法可靠推断时返回空字符串 ""。
 - similar_sentences 必须生成 2-3 条泛化相似表述，用于后续语义检索匹配，禁止复制原句

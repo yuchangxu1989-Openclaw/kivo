@@ -21,9 +21,16 @@ describe('session extraction why field', () => {
     const styleSection = buildHumanReadableIntentStyleSection();
 
     expect(prompt).toContain(styleSection);
-    expect(styleSection).toContain('title 必须是完整的人话句子，10-25字');
-    expect(styleSection).toContain('用向量检索代替正则做语义判断');
-    expect(styleSection).toContain('坏标题："语义禁用规则凑"');
+    expect(styleSection).toContain('title 必须像用户本人会说的话，10-25字');
+    expect(styleSection).toContain('具体动词 + 具体对象');
+    expect(styleSection).toContain('禁止用正则做语义判断');
+    expect(styleSection).toContain('坏标题："语义禁用规则"');
+    expect(styleSection).toContain('像跟同事解释时会自然说出的一句话');
+    expect(styleSection).toContain('不是学术摘要、标签名或压缩后的分类名');
+    expect(styleSection).toContain('坏标题："语义禁用规则"、"知识对齐策略"、"领域知识库通用化"');
+    expect(styleSection).toContain('知识库内容要跟 spec 保持一致');
+    expect(styleSection).toContain('知识库不要绑死在单一领域');
+    expect(styleSection).toContain('避免「策略」「原则」「机制」「规范」「优化」「对齐」「治理」「框架」等抽象名词堆砌');
     expect(styleSection).toContain('content/description 必须有具体场景');
     expect(styleSection).toContain('why 禁止复制 content/description/summary/title');
   });

@@ -18,7 +18,7 @@ import { resolveLlmConfig } from './resolve-llm-config.js';
 import { OpenAILLMProvider, resolveLlmTimeoutMs } from '../extraction/llm-extractor.js';
 import { BgeEmbedder } from '../extraction/bge-embedder.js';
 import { KnowledgeRepository, SQLiteProvider } from '../repository/index.js';
-import { buildBehavioralChangeTestSection, loadDedupThreshold } from '../standards/index.js';
+import { buildBehavioralChangeTestSection, buildHumanReadableIntentStyleSection, loadDedupThreshold } from '../standards/index.js';
 import { shortenKnowledgeTitle } from '../extraction/extraction-utils.js';
 import {
   parseLlmResponse,
@@ -133,31 +133,37 @@ function buildMemoryExtractionPrompt(chunks: MemoryChunk[]): string {
 
 ${buildBehavioralChangeTestSection()}
 
+${buildHumanReadableIntentStyleSection()}
+
 ## 格式约束（强制）
-- title: 知识的「名字」，名词性短语，≤10字
-- content: 知识的「定义/描述」，≤50字，简洁精炼，自包含
+- title/content/why/similar_sentences 统一遵守上方「人话意图写作标准」。
+- title 是口语化人话标题，不是知识分类名；禁止输出「语义禁用规则」「知识对齐策略」「领域知识库通用化」这类 AI 味短标题。
+- content: 知识描述，≤80字，简洁精炼，自包含，说清场景、做法和不做的后果
 - 每个片段最多提取 5 条，宁缺毋滥
 - 没有通过行为变化测试的知识点就返回 []
 - 已经是通用常识的内容不提取
 
 ## 正确示例
-{"title":"禁止doctor --fix","content":"openclaw doctor --fix 被禁止使用，只能手动修复后再跑 doctor 确认"}
-{"title":"看板写入方式","content":"写入 subagent-task-board.json 必须用 node local-subagent-board.js enqueue，禁止直接写 JSON"}
-{"title":"主会话空闲铁律","content":"主会话只做秒级响应，超过30秒的工作必须派给子Agent"}
+{"title":"禁止用正则做语义判断","content":"涉及意图、分类或知识判断时，要用 LLM 或向量检索承担语义理解，不能靠关键词规则冒充理解。"}
+{"title":"知识库内容要跟 spec 保持一致","content":"当 spec 改变或架构边界冻结后，知识库里的约束和示例也要同步更新，否则会把旧规则继续注入给 agent。"}
+{"title":"主会话超过半分钟就要派子 Agent","content":"主会话只做接收、判断和秒级回复，调研、开发、构建等长任务必须派子 Agent，避免阻塞用户通信。"}
 
 ## 错误示例（禁止）
+✖ title:"语义禁用规则" ← 抽象短标签，不像人话
+✖ title:"知识对齐策略" ← AI 摘要腔，没有动作和对象
+✖ title:"领域知识库通用化" ← 分类名，不是同事会说的一句话
 ✖ title:"2026-04-12 codex排查" ← 包含日期，不是知识名称
 ✖ content:"用户在09:03说了..." ← 对话摘要
 ✖ content:"LLM 是大语言模型" ← 通用常识
 
 ## 三维标签
-1. nature: fact / decision / methodology / experience / meta
+1. nature: fact / decision / methodology / experience / intent / meta
 2. function: constraint / preference / pattern / principle
 3. domain: 开放标签
 
 ## 输出格式
 纯 JSON 数组：
-{"content":"≤50字定义","title":"≤10字名词短语","nature":"<nature>","function":"<function>","domain":"<domain>","source":"memory","confidence":0.0-1.0,"tags":["标签"]}
+{"content":"≤80字人话描述","title":"口语化人话标题","nature":"<nature>","function":"<function>","domain":"<domain>","source":"memory","confidence":0.0-1.0,"tags":["标签"],"similar_sentences":["泛化表述1","泛化表述2"]}
 
 Memory 片段：
 ${combined}`;
@@ -291,6 +297,7 @@ export async function extractMemoryKnowledge(
   // Process each memory file
   let allChunks: MemoryChunk[] = [];
   let consecutive403 = 0;
+  const pendingFileHashes = new Map<string, string>();
 
   for (const file of files) {
     const filePath = join(memoryDir, file);
@@ -315,11 +322,8 @@ export async function extractMemoryKnowledge(
 
     allChunks.push(...chunks);
 
-    // Update file hash in DB after processing
-    if (!dryRun && db) {
-      db.prepare(
-        'INSERT INTO processed_memory_files (file_path, file_hash, processed_at) VALUES (?, ?, ?) ON CONFLICT(file_path) DO UPDATE SET file_hash = excluded.file_hash, processed_at = excluded.processed_at'
-      ).run(filePath, fileHash, new Date().toISOString());
+    if (!dryRun) {
+      pendingFileHashes.set(filePath, fileHash);
     }
   }
 
@@ -459,6 +463,17 @@ export async function extractMemoryKnowledge(
           break;
         }
       }
+    }
+  }
+
+  // Persist file hashes only after all batches processed successfully
+  if (!dryRun && db && result.errors.length === 0) {
+    const upsertHash = db.prepare(
+      'INSERT INTO processed_memory_files (file_path, file_hash, processed_at) VALUES (?, ?, ?) ON CONFLICT(file_path) DO UPDATE SET file_hash = excluded.file_hash, processed_at = excluded.processed_at'
+    );
+    const nowIso = new Date().toISOString();
+    for (const [filePath, fileHash] of pendingFileHashes) {
+      upsertHash.run(filePath, fileHash, nowIso);
     }
   }
 

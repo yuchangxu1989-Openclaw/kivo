@@ -452,13 +452,38 @@ async function runStage2Aggregation(
 
 export function parseLlmResponse(raw: string): ExtractedItem[] {
   let cleaned = raw.trim();
+
+  if (!cleaned) {
+    console.error('[KIVO] LLM returned empty response, skipping batch');
+    return [];
+  }
+
   if (cleaned.startsWith('```')) {
     cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
   }
 
+  const firstChar = cleaned[0];
+  if (firstChar !== '{' && firstChar !== '[') {
+    console.error(
+      `[KIVO] LLM returned non-JSON response (starts with "${firstChar}"), skipping batch. First 200 chars: ${cleaned.slice(0, 200)}`,
+    );
+    return [];
+  }
+
   try {
     const parsed = JSON.parse(cleaned);
-    if (!Array.isArray(parsed)) return [];
+    if (!Array.isArray(parsed)) {
+      if (typeof parsed === 'object' && parsed !== null) {
+        return [parsed].filter(
+          (item: unknown) =>
+            typeof item === 'object' &&
+            item !== null &&
+            typeof (item as Record<string, unknown>).content === 'string' &&
+            (item as Record<string, unknown>).content !== '',
+        ) as ExtractedItem[];
+      }
+      return [];
+    }
     return parsed.filter(
       (item: unknown) =>
         typeof item === 'object' &&
@@ -466,7 +491,10 @@ export function parseLlmResponse(raw: string): ExtractedItem[] {
         typeof (item as Record<string, unknown>).content === 'string' &&
         (item as Record<string, unknown>).content !== '',
     ) as ExtractedItem[];
-  } catch {
+  } catch (err) {
+    console.error(
+      `[KIVO] JSON.parse failed for LLM response, skipping batch. Error: ${err instanceof Error ? err.message : String(err)}. First 200 chars: ${cleaned.slice(0, 200)}`,
+    );
     return [];
   }
 }
